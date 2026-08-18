@@ -1,0 +1,81 @@
+// BCDebugJavaAgent — root build script
+// Multi-project: core (bytecode analysis), agent (premain/agentmain), hooks-26 (MC 26.x specific)
+
+subprojects {
+    apply plugin: 'java'
+
+    group = maven_group
+    version = agent_version
+
+    repositories {
+        mavenCentral()
+        maven { url = 'https://mirrors.cloud.tencent.com/nexus/repository/maven-public/' }
+    }
+
+    // All subprojects depend on ASM for bytecode manipulation
+    dependencies {
+        implementation "org.ow2.asm:asm:${asm_version}"
+        implementation "org.ow2.asm:asm-tree:${asm_version}"
+        implementation "org.ow2.asm:asm-commons:${asm_version}"
+    }
+
+    java {
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(21)
+        }
+    }
+
+    compileJava {
+        options.encoding = 'UTF-8'
+        // Target Java 21 for MC 26.x; hooks modules can override
+        sourceCompatibility = 21
+        targetCompatibility = 21
+    }
+
+    jar {
+        manifest {
+            attributes(
+                'Implementation-Title': project.name,
+                'Implementation-Version': agent_version,
+                'Implementation-Vendor': 'BlockConnect'
+            )
+        }
+    }
+}
+
+// Fat-jar task: bundles agent + core + hooks + runtime deps (ASM, Gson) into a single deployable agent jar
+tasks.register('fatJar', Jar) {
+    dependsOn subprojects.jar
+
+    archiveBaseName = 'bcdebug-javaagent'
+    archiveVersion = agent_version
+    archiveClassifier = ''
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+    destinationDirectory = layout.buildDirectory.dir('libs')
+
+    // Subproject JARs (core, hooks) — unzip and include their contents
+    from(subprojects.collect {
+        it.tasks.jar.outputs.files.collect { f -> zipTree(f) }
+    })
+
+    // External dependency JARs only (ASM, Gson) — filter out project dirs
+    from {
+        project(':bc-agent').configurations.runtimeClasspath
+            .filter { it.isFile() && it.name.endsWith('.jar') && !it.path.contains('bc-agent') }
+            .collect { zipTree(it) }
+    }
+
+    manifest {
+        attributes(
+            'Premain-Class': 'dev.blockconnect.bcagent.BCAgent',
+            'Agent-Class': 'dev.blockconnect.bcagent.BCAgent',
+            'Can-Redefine-Classes': 'true',
+            'Can-Retransform-Classes': 'true',
+            'Can-Set-Native-Method-Prefix': 'true',
+            'Implementation-Title': 'BCDebugJavaAgent',
+            'Implementation-Version': agent_version,
+            'Implementation-Vendor': 'BlockConnect'
+        )
+    }
+}

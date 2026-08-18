@@ -1,0 +1,5 @@
+// bc-agent: premain/agentmain entry point, config loading, logging infrastructure
+dependencies {
+    implementation project(':bc-agent-core')
+    implementation project(':bc-hooks-26')
+}

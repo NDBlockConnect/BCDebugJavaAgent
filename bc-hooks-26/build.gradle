@@ -1,0 +1,5 @@
+// bc-hooks-26: Minecraft 26.x specific hooks (26.2, 26.1.2)
+// Provides version-specific class/method matching and hook injection
+dependencies {
+    implementation project(':bc-agent-core')
+}

@@ -1,0 +1,7 @@
+// bc-agent-core: bytecode analysis, recording, and hook framework
+// No MC-specific dependencies — pure ASM + Java
+
+dependencies {
+    // Core only needs ASM (inherited from root) + Gson for JSON export
+    implementation 'com.google.code.gson:gson:2.11.0'
+}
