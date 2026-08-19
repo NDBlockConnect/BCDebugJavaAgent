@@ -12,20 +12,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Exports collected records to disk in JSONL format.
- * <p>
- * Called on JVM shutdown (via shutdown hook) or on-demand via the HTTP API.
- */
 public final class RecordExporter {
 
-    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+    private static final Gson GSON_PRETTY = new GsonBuilder().setPrettyPrinting().create();
+    private static final Gson GSON_LINE = new GsonBuilder().disableHtmlEscaping().create();
 
-    /**
-     * Export all collected data to the output directory.
-     * @param outputDir target directory (created if absent)
-     * @return list of files written
-     */
     public static List<String> exportAll(String outputDir) {
         List<String> written = new ArrayList<>();
         AgentLogger logger = AgentLogger.getInstance();
@@ -34,10 +25,7 @@ public final class RecordExporter {
             Path dir = Paths.get(outputDir);
             Files.createDirectories(dir);
 
-            // 1. Export log records as JSONL
             written.add(exportLogs(dir, logger));
-
-            // 2. Export method statistics as JSON
             written.add(exportMethodStats(dir));
 
             logger.info("Export complete: " + String.join(", ", written));
@@ -52,13 +40,13 @@ public final class RecordExporter {
         try (BufferedWriter w = Files.newBufferedWriter(logFile)) {
             for (AgentLogger.LogRecord rec : logger.snapshot()) {
                 LogEntry entry = new LogEntry(
-                    rec.timestamp.toString(),
-                    rec.level.name(),
+                    rec.timestamp != null ? rec.timestamp.toString() : null,
+                    rec.level != null ? rec.level.name() : null,
                     rec.threadName,
                     rec.message,
                     rec.error != null ? rec.error.toString() : null
                 );
-                w.write(GSON.toJson(entry));
+                w.write(GSON_LINE.toJson(entry));
                 w.newLine();
             }
         }
@@ -84,12 +72,10 @@ public final class RecordExporter {
         }
 
         try (BufferedWriter w = Files.newBufferedWriter(statsFile)) {
-            w.write(GSON.toJson(entries));
+            w.write(GSON_PRETTY.toJson(entries));
         }
         return statsFile.toString();
     }
-
-    // ── JSON DTOs ───────────────────────────────────────────
 
     private static final class LogEntry {
         final String timestamp;

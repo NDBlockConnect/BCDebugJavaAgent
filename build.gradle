@@ -12,11 +12,18 @@ subprojects {
         maven { url = 'https://mirrors.cloud.tencent.com/nexus/repository/maven-public/' }
     }
 
-    // All subprojects depend on ASM for bytecode manipulation
     dependencies {
         implementation "org.ow2.asm:asm:${asm_version}"
         implementation "org.ow2.asm:asm-tree:${asm_version}"
         implementation "org.ow2.asm:asm-commons:${asm_version}"
+
+        testImplementation platform('org.junit:junit-bom:5.11.4')
+        testImplementation 'org.junit.jupiter:junit-jupiter'
+        testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    }
+
+    test {
+        useJUnitPlatform()
     }
 
     java {
@@ -27,7 +34,6 @@ subprojects {
 
     compileJava {
         options.encoding = 'UTF-8'
-        // Target Java 21 for MC 26.x; hooks modules can override
         sourceCompatibility = 21
         targetCompatibility = 21
     }
@@ -43,7 +49,6 @@ subprojects {
     }
 }
 
-// Fat-jar task: bundles agent + core + hooks + runtime deps (ASM, Gson) into a single deployable agent jar
 tasks.register('fatJar', Jar) {
     dependsOn subprojects.jar
 
@@ -54,12 +59,10 @@ tasks.register('fatJar', Jar) {
 
     destinationDirectory = layout.buildDirectory.dir('libs')
 
-    // Subproject JARs (core, hooks) — unzip and include their contents
     from(subprojects.collect {
         it.tasks.jar.outputs.files.collect { f -> zipTree(f) }
     })
 
-    // External dependency JARs only (ASM, Gson) — filter out project dirs
     from {
         project(':bc-agent').configurations.runtimeClasspath
             .filter { it.isFile() && it.name.endsWith('.jar') && !it.path.contains('bc-agent') }

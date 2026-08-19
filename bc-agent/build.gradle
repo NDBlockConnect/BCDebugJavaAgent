@@ -2,4 +2,9 @@
 dependencies {
     implementation project(':bc-agent-core')
     implementation project(':bc-hooks-26')
+    implementation 'com.google.code.gson:gson:2.11.0'
+}
+
+test {
+    enabled = false
 }

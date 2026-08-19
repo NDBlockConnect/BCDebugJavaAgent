@@ -11,13 +11,6 @@ import org.objectweb.asm.commons.AdviceAdapter;
 import java.lang.instrument.ClassFileTransformer;
 import java.security.ProtectionDomain;
 
-/**
- * Core ClassFileTransformer — instruments matching classes with method
- * entry/exit callbacks using the AdviceAdapter pattern.
- * <p>
- * Injected bytecode calls {@link MethodRecorder#onMethodEntry} at method start
- * and {@link MethodRecorder#onMethodExit} before every return instruction.
- */
 public class BCTransformer implements ClassFileTransformer {
 
     private final AgentConfig config;
@@ -33,26 +26,26 @@ public class BCTransformer implements ClassFileTransformer {
                              byte[] classfileBuffer) {
         if (className == null) return null;
 
-        // Fast path: skip non-matching classes
         if (!config.matchesClass(className.replace('/', '.'))) {
             return null;
         }
 
         try {
+            if (config.logClassLoad) {
+                AgentLogger.getInstance().info("Class loaded: " + className.replace('/', '.'));
+            }
+
             ClassReader reader = new ClassReader(classfileBuffer);
             ClassWriter writer = new ClassWriter(reader, ClassWriter.COMPUTE_MAXS);
 
             reader.accept(new BCClassVisitor(writer, config), ClassReader.EXPAND_FRAMES);
             return writer.toByteArray();
         } catch (Throwable t) {
-            // Never let transformer errors crash the JVM
             AgentLogger.getInstance().error(
                 "Transform failed for " + className + ": " + t.getMessage(), t);
             return null;
         }
     }
-
-    // ── Class visitor ───────────────────────────────────────
 
     static class BCClassVisitor extends org.objectweb.asm.ClassVisitor {
         private final AgentConfig config;
@@ -75,13 +68,12 @@ public class BCTransformer implements ClassFileTransformer {
                                           String signature, String[] exceptions) {
             MethodVisitor mv = super.visitMethod(access, name, descriptor, signature, exceptions);
 
-            // Skip abstract/native methods — no body to instrument
             if (mv == null || (access & Opcodes.ACC_ABSTRACT) != 0
                 || (access & Opcodes.ACC_NATIVE) != 0) {
                 return mv;
             }
 
-            if (config.logMethodEntry || config.logMethodExit) {
+            if (config.logMethodEntry || config.logMethodExit || config.logFieldAccess) {
                 return new BCAdviceAdapter(api, mv, access, name, descriptor,
                                            className, config);
             }
@@ -89,14 +81,12 @@ public class BCTransformer implements ClassFileTransformer {
         }
     }
 
-    // ── Advice adapter ──────────────────────────────────────
-
     static class BCAdviceAdapter extends AdviceAdapter {
         private final String className;
         private final String methodName;
         private final String descriptor;
         private final AgentConfig config;
-        private int startTimeVar;
+        private int startTimeVar = -1;
 
         protected BCAdviceAdapter(int api, MethodVisitor mv, int access,
                                    String name, String desc, String className,
@@ -110,25 +100,49 @@ public class BCTransformer implements ClassFileTransformer {
 
         @Override
         protected void onMethodEnter() {
+            if (config.logMethodEntry || config.logMethodExit) {
+                invokeStatic(Type.getType("Ljava/lang/System;"),
+                    org.objectweb.asm.commons.Method.getMethod("long nanoTime()"));
+                startTimeVar = newLocal(Type.LONG_TYPE);
+                storeLocal(startTimeVar);
+            }
             if (config.logMethodEntry) {
-                // Call MethodRecorder.onMethodEntry(className, methodName, descriptor)
-                // and store the returned nano-time in a local variable
                 visitLdcInsn(className);
                 visitLdcInsn(methodName);
                 visitLdcInsn(descriptor);
                 invokeStatic(Type.getType("Ldev/blockconnect/bcagent/core/MethodRecorder;"),
                     org.objectweb.asm.commons.Method.getMethod(
                         "long onMethodEntry(String,String,String)"));
-                startTimeVar = newLocal(Type.LONG_TYPE);
-                storeLocal(startTimeVar);
+                pop2();
             }
             super.onMethodEnter();
         }
 
         @Override
+        public void visitFieldInsn(int opcode, String owner, String name, String descriptor) {
+            if (config.logFieldAccess) {
+                String ownerDot = owner.replace('/', '.');
+                switch (opcode) {
+                    case Opcodes.GETFIELD:
+                        AgentLogger.getInstance().trace("GETFIELD " + ownerDot + "." + name);
+                        break;
+                    case Opcodes.PUTFIELD:
+                        AgentLogger.getInstance().trace("PUTFIELD " + ownerDot + "." + name);
+                        break;
+                    case Opcodes.GETSTATIC:
+                        AgentLogger.getInstance().trace("GETSTATIC " + ownerDot + "." + name);
+                        break;
+                    case Opcodes.PUTSTATIC:
+                        AgentLogger.getInstance().trace("PUTSTATIC " + ownerDot + "." + name);
+                        break;
+                }
+            }
+            super.visitFieldInsn(opcode, owner, name, descriptor);
+        }
+
+        @Override
         protected void onMethodExit(int opcode) {
             if (config.logMethodExit && opcode != Opcodes.ATHROW) {
-                // Call MethodRecorder.onMethodExit(className, methodName, descriptor, startTime)
                 visitLdcInsn(className);
                 visitLdcInsn(methodName);
                 visitLdcInsn(descriptor);
@@ -138,14 +152,15 @@ public class BCTransformer implements ClassFileTransformer {
                         "void onMethodExit(String,String,String,long)"));
             }
             if (opcode == Opcodes.ATHROW) {
-                // Exception path — record the exception exit
-                visitLdcInsn(className);
-                visitLdcInsn(methodName);
-                visitLdcInsn(descriptor);
-                loadLocal(startTimeVar);
-                invokeStatic(Type.getType("Ldev/blockconnect/bcagent/core/MethodRecorder;"),
-                    org.objectweb.asm.commons.Method.getMethod(
-                        "void onMethodException(String,String,String,long)"));
+                if (config.logMethodExit && startTimeVar >= 0) {
+                    visitLdcInsn(className);
+                    visitLdcInsn(methodName);
+                    visitLdcInsn(descriptor);
+                    loadLocal(startTimeVar);
+                    invokeStatic(Type.getType("Ldev/blockconnect/bcagent/core/MethodRecorder;"),
+                        org.objectweb.asm.commons.Method.getMethod(
+                            "void onMethodException(String,String,String,long)"));
+                }
             }
             super.onMethodExit(opcode);
         }

@@ -1,5 +1,7 @@
 package dev.blockconnect.bcagent;
 
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
@@ -9,20 +11,14 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
-/**
- * Minimal HTTP control server for runtime agent queries.
- * <p>
- * Endpoints:
- * <ul>
- *   <li>{@code GET /status} — agent status and record counts</li>
- *   <li>{@code GET /methods} — method statistics summary</li>
- *   <li>{@code GET /logs} — recent log entries (last 100)</li>
- *   <li>{@code POST /export} — trigger immediate export to disk</li>
- * </ul>
- */
 public class ControlServer {
+
+    private static final Gson GSON = new GsonBuilder().create();
 
     private final HttpServer server;
     private final AgentConfig config;
@@ -42,10 +38,8 @@ public class ControlServer {
     public void start() { server.start(); }
     public void stop() { server.stop(0); }
 
-    // ── Handlers ────────────────────────────────────────────
-
-    private static void sendJson(HttpExchange ex, int code, String json) throws IOException {
-        byte[] body = json.getBytes(StandardCharsets.UTF_8);
+    private static void sendJson(HttpExchange ex, int code, Object obj) throws IOException {
+        byte[] body = GSON.toJson(obj).getBytes(StandardCharsets.UTF_8);
         ex.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
         ex.sendResponseHeaders(code, body.length);
         try (OutputStream os = ex.getResponseBody()) {
@@ -64,56 +58,65 @@ public class ControlServer {
     static class StatusHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange ex) throws IOException {
-            AgentLogger log = AgentLogger.getInstance();
-            HookRegistry hooks = HookRegistry.getInstance();
-            String json = "{\"agent\":\"BCDebugJavaAgent\","
-                + "\"initialized\":" + BCAgent.isInitialized() + ","
-                + "\"logRecords\":" + log.getRecordCount() + ","
-                + "\"methodRecords\":" + MethodRecorder.methodCount() + ","
-                + "\"hooksActive\":" + hooks.isActive() + ","
-                + "\"totalHooks\":" + hooks.totalHooks() + "}";
-            sendJson(ex, 200, json);
+            try {
+                AgentLogger log = AgentLogger.getInstance();
+                HookRegistry hooks = HookRegistry.getInstance();
+                Map<String, Object> status = new LinkedHashMap<>();
+                status.put("agent", "BCDebugJavaAgent");
+                status.put("initialized", BCAgent.isInitialized());
+                status.put("logRecords", log.getRecordCount());
+                status.put("methodRecords", MethodRecorder.methodCount());
+                status.put("hooksActive", hooks.isActive());
+                status.put("totalHooks", hooks.totalHooks());
+                sendJson(ex, 200, status);
+            } catch (Throwable t) {
+                sendText(ex, 500, "Internal error: " + t.getMessage());
+            }
         }
     }
 
     static class MethodsHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange ex) throws IOException {
-            Map<String, MethodRecorder.MethodStats> stats = MethodRecorder.snapshot();
-            StringBuilder sb = new StringBuilder("[");
-            boolean first = true;
-            for (MethodRecorder.MethodStats s : stats.values()) {
-                if (!first) sb.append(',');
-                first = false;
-                sb.append("{\"class\":\"").append(s.className)
-                  .append("\",\"method\":\"").append(s.methodName)
-                  .append("\",\"entries\":").append(s.entryCount.get())
-                  .append(",\"exits\":").append(s.exitCount.get())
-                  .append(",\"totalNanos\":").append(s.totalNanos.get())
-                  .append('}');
+            try {
+                Map<String, MethodRecorder.MethodStats> stats = MethodRecorder.snapshot();
+                List<Map<String, Object>> list = new ArrayList<>(stats.size());
+                for (MethodRecorder.MethodStats s : stats.values()) {
+                    Map<String, Object> entry = new LinkedHashMap<>();
+                    entry.put("class", s.className);
+                    entry.put("method", s.methodName);
+                    entry.put("entries", s.entryCount.get());
+                    entry.put("exits", s.exitCount.get());
+                    entry.put("totalNanos", s.totalNanos.get());
+                    list.add(entry);
+                }
+                sendJson(ex, 200, list);
+            } catch (Throwable t) {
+                sendText(ex, 500, "Internal error: " + t.getMessage());
             }
-            sb.append(']');
-            sendJson(ex, 200, sb.toString());
         }
     }
 
     static class LogsHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange ex) throws IOException {
-            AgentLogger.LogRecord[] records = AgentLogger.getInstance().snapshot();
-            int limit = Math.min(records.length, 100);
-            StringBuilder sb = new StringBuilder("[");
-            for (int i = 0; i < limit; i++) {
-                if (i > 0) sb.append(',');
-                AgentLogger.LogRecord r = records[i];
-                sb.append("{\"ts\":\"").append(r.timestamp)
-                  .append("\",\"level\":\"").append(r.level)
-                  .append("\",\"thread\":\"").append(r.threadName)
-                  .append("\",\"msg\":\"").append(r.message.replace("\"", "\\\""))
-                  .append("\"}");
+            try {
+                AgentLogger.LogRecord[] records = AgentLogger.getInstance().snapshot();
+                int limit = Math.min(records.length, 100);
+                List<Map<String, Object>> list = new ArrayList<>(limit);
+                for (int i = 0; i < limit; i++) {
+                    AgentLogger.LogRecord r = records[i];
+                    Map<String, Object> entry = new LinkedHashMap<>();
+                    entry.put("ts", r.timestamp != null ? r.timestamp.toString() : null);
+                    entry.put("level", r.level != null ? r.level.name() : null);
+                    entry.put("thread", r.threadName);
+                    entry.put("msg", r.message);
+                    list.add(entry);
+                }
+                sendJson(ex, 200, list);
+            } catch (Throwable t) {
+                sendText(ex, 500, "Internal error: " + t.getMessage());
             }
-            sb.append(']');
-            sendJson(ex, 200, sb.toString());
         }
     }
 
@@ -124,14 +127,15 @@ public class ControlServer {
                 sendText(ex, 405, "Method not allowed");
                 return;
             }
-            java.util.List<String> files = RecordExporter.exportAll(config.outputDir);
-            StringBuilder sb = new StringBuilder("{\"exported\":true,\"files\":[");
-            for (int i = 0; i < files.size(); i++) {
-                if (i > 0) sb.append(',');
-                sb.append("\"").append(files.get(i).replace("\\", "/")).append("\"");
+            try {
+                List<String> files = RecordExporter.exportAll(config.outputDir);
+                Map<String, Object> result = new LinkedHashMap<>();
+                result.put("exported", true);
+                result.put("files", files);
+                sendJson(ex, 200, result);
+            } catch (Throwable t) {
+                sendText(ex, 500, "Export failed: " + t.getMessage());
             }
-            sb.append("]}");
-            sendJson(ex, 200, sb.toString());
         }
     }
 }
