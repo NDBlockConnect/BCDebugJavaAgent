@@ -26,16 +26,34 @@ public class HookTransformer implements ClassFileTransformer {
                              byte[] classfileBuffer) {
         if (className == null) return null;
 
-        HookRegistry registry = HookRegistry.getInstance();
-        if (!registry.isActive() || !registry.hasHooks(className)) {
+        // Cheap prefix pre-filter BEFORE touching HookRegistry. Hook targets
+        // always live under net/minecraft/ or com/mojang/. Everything else
+        // (including this agent's own classes) must be skipped without
+        // resolving HookRegistry — otherwise transforming HookRegistry itself
+        // would re-enter its load and fail with a duplicate-definition
+        // LinkageError under plain -javaagent launches.
+        if (!className.startsWith("net/minecraft/")
+            && !className.startsWith("com/mojang/")) {
             return null;
         }
+
+        HookRegistry registry;
+        List<MethodHook> hooks;
+        try {
+            registry = HookRegistry.getInstance();
+            if (!registry.isActive()) return null;
+            hooks = registry.getHooks(className);
+        } catch (Throwable t) {
+            // Registry not resolvable yet — skip rather than break class loading.
+            return null;
+        }
+        if (hooks == null || hooks.isEmpty()) return null;
 
         try {
             ClassReader reader = new ClassReader(classfileBuffer);
             ClassWriter writer = new ClassWriter(reader, ClassWriter.COMPUTE_MAXS);
 
-            reader.accept(new HookClassVisitor(writer, className), ClassReader.EXPAND_FRAMES);
+            reader.accept(new HookClassVisitor(writer, className, hooks), ClassReader.EXPAND_FRAMES);
             return writer.toByteArray();
         } catch (Throwable t) {
             AgentLogger.getInstance().error(
@@ -46,10 +64,12 @@ public class HookTransformer implements ClassFileTransformer {
 
     static class HookClassVisitor extends org.objectweb.asm.ClassVisitor {
         private final String className;
+        private final List<MethodHook> hooks;
 
-        HookClassVisitor(ClassVisitor cv, String className) {
+        HookClassVisitor(ClassVisitor cv, String className, List<MethodHook> hooks) {
             super(Opcodes.ASM9, cv);
             this.className = className;
+            this.hooks = hooks;
         }
 
         @Override
@@ -61,10 +81,6 @@ public class HookTransformer implements ClassFileTransformer {
                 || (access & Opcodes.ACC_NATIVE) != 0) {
                 return mv;
             }
-
-            // Check if any hooks match this method
-            List<MethodHook> hooks = HookRegistry.getInstance().getHooks(className);
-            if (hooks == null) return mv;
 
             boolean hasMatch = false;
             for (MethodHook hook : hooks) {

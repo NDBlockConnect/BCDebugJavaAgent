@@ -19,3 +19,8 @@ logs/
 
 # Agent output
 agent-output/
+bcdebug-output/
+
+# AI tool session data (not part of the source tree)
+.opencode/
+.trae/

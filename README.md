@@ -16,7 +16,8 @@ BCDebugJavaAgent is a JVM-level Java Agent for Minecraft Java Edition (1.12.2–
 BCDebugJavaAgent/
 ├── bc-agent-core/          # Core: ASM bytecode analysis, hook registry, logging, export
 ├── bc-agent/               # Agent: premain/agentmain entry, config, HTTP control server
-├── bc-hooks-26/             # MC 26.x specific hooks (26.2, 26.1.2)
+├── bc-hooks-26/            # MC 26.x specific hooks (26.2, 26.1.2)
+├── bc-hooks-legacy/        # MC legacy hooks (1.20.x, 1.21.x, Mojang mappings)
 ├── build.gradle             # Root build + fatJar task
 ├── gradle.properties        # Version config
 └── settings.gradle          # Multi-project settings
@@ -34,12 +35,21 @@ Output: `build/libs/bcdebug-javaagent-v26.0-Alpha.1.jar`
 ## Usage
 
 ```powershell
-# With Minecraft (via mdl — needs -Xbootclasspath/a to avoid duplicate class loading)
-java -Xbootclasspath/a:bcdebug-javaagent.jar -javaagent:bcdebug-javaagent.jar=logLevel=DEBUG -jar minecraft.jar
+# Minecraft client (vanilla / mdl): plain -javaagent is sufficient
+java -javaagent:bcdebug-javaagent.jar=logLevel=DEBUG,hookProfile=auto -jar minecraft.jar
+
+# Dedicated server (1.21+ bundler launches the game in an isolated classloader —
+# the bootstrap flag makes agent classes visible to the injected bytecode):
+java -Xbootclasspath/a:bcdebug-javaagent.jar ^
+     -javaagent:bcdebug-javaagent.jar=logLevel=DEBUG,hookProfile=1.21,enableHttp=true ^
+     -jar server.jar nogui
 
 # Standalone test
-java -Xbootclasspath/a:bcdebug-javaagent.jar -javaagent:bcdebug-javaagent.jar=logLevel=DEBUG,classfilters=dev.blockconnect.bcagent.test -cp test-classes dev.blockconnect.bcagent.test.TestTarget
+java -javaagent:bcdebug-javaagent.jar=logLevel=DEBUG,classfilters=dev.blockconnect.bcagent.test -cp test-classes dev.blockconnect.bcagent.test.TestTarget
 ```
+
+> **Note** — a future Alpha will embed a bootstrap sub-jar so the server path
+> also works with a bare `-javaagent` (self-bootstrapping agent).
 
 ### Configuration Keys
 
@@ -52,8 +62,7 @@ java -Xbootclasspath/a:bcdebug-javaagent.jar -javaagent:bcdebug-javaagent.jar=lo
 | `logMethodEntry` | `true` | Log method entries |
 | `logMethodExit` | `false` | Log method exits |
 | `enableHooks` | `true` | Enable MC-specific hook injection |
-| `hookProfile` | `auto` | Hook set: `26`, `1.21`, `1.20`, `1.12`, `auto` |
-| `exportOnShutdown` | `true` | Export JSONL logs on JVM exit |
+| `hookProfile` | `auto` | Hook set: `26`, `1.21`, `1.20`, `1.12`, `auto` || `exportOnShutdown` | `true` | Export JSONL logs on JVM exit |
 | `enableHttp` | `false` | Enable HTTP control server |
 | `httpPort` | `25595` | HTTP server port |
 
@@ -68,12 +77,26 @@ java -Xbootclasspath/a:bcdebug-javaagent.jar -javaagent:bcdebug-javaagent.jar=lo
 
 ## Supported MC Versions
 
-| MC Range | JDK | Hook Profile |
-|---|---|---|
-| 26.1–26.2 | 21+ | `26` |
-| 1.21.x | 21 | `1.21` (planned) |
-| 1.20.x | 17 | `1.20` (planned) |
-| 1.12.2 | 8 | `1.12` (planned) |
+| MC Range | Game JVM | Hook Profile | Status |
+|---|---|---|---|
+| 26.1–26.2 | 21+ | `26` | Available |
+| 1.21.x | 21 | `1.21` | Available |
+| 1.20.x | 17 | `1.20` | Available |
+| 1.12.2 | 8 | `1.12` | Planned (requires legacy JDK 8 artifact) |
+
+### Profile auto-detection
+
+With `hookProfile=auto` (default), the agent resolves the active profile at
+startup:
+
+1. System property `bcdebug.mcversion=<ver>` (explicit override)
+2. System property `minecraft.version`
+3. `version.json` in the game root (official launcher layout)
+4. First `versions/*/version.json` under the game root
+
+When detection fails, the default provider set (MC 26.x) is activated.
+The agent bytecode targets release 17, so the same fatJar loads on JDK 17+
+game JVMs.
 
 ## License
 

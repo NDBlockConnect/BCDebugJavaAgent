@@ -1,0 +1,4 @@
+// bc-hooks-legacy: MC 1.20.x / 1.21.x hook providers (Mojang official mappings)
+dependencies {
+    implementation project(':bc-agent-core')
+}

@@ -43,7 +43,7 @@ public final class HookRegistry {
             return;
         }
 
-        String profile = config.hookProfile;
+        String profile = resolveProfile(config.hookProfile);
         AgentLogger.getInstance().info("Loading hook providers for profile: " + profile);
 
         // Discover via ServiceLoader
@@ -67,6 +67,27 @@ public final class HookRegistry {
             AgentLogger.getInstance().info("Hook registry active: " + hooksByClass.size()
                 + " classes, " + providers.size() + " providers");
         }
+    }
+
+    /**
+     * Resolve the "auto" profile against the running MC version.
+     * Explicit profiles pass through unchanged; "auto" attempts detection via
+     * {@link McVersionDetector} and falls back to "auto" (default provider
+     * behavior) when the version cannot be determined.
+     */
+    private static String resolveProfile(String profile) {
+        if (!"auto".equalsIgnoreCase(profile)) return profile;
+
+        String mcVersion = McVersionDetector.detect();
+        String resolved = McVersionDetector.toProfile(mcVersion);
+        if (resolved != null) {
+            AgentLogger.getInstance().info(
+                "Auto-detected MC version " + mcVersion + " — hook profile: " + resolved);
+            return resolved;
+        }
+        AgentLogger.getInstance().warn(
+            "Hook profile 'auto': MC version not detected, using default provider matching");
+        return "auto";
     }
 
     /** Register a single method hook. */

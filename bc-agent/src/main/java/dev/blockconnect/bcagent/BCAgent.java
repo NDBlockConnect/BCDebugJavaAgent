@@ -9,7 +9,7 @@ import java.util.jar.Manifest;
 public class BCAgent {
 
     private static final String AGENT_NAME = "BCDebugJavaAgent";
-    private static final String FALLBACK_VERSION = "v26.0-Alpha.1";
+    private static final String FALLBACK_VERSION = "v26.0-Alpha.3";
     private static String agentVersion;
 
     private static volatile boolean initialized = false;
