@@ -46,7 +46,11 @@ public final class HookRegistry {
         String profile = resolveProfile(config.hookProfile);
         AgentLogger.getInstance().info("Loading hook providers for profile: " + profile);
 
-        // Discover via ServiceLoader
+        // Discover via ServiceLoader (thread-context loader). Works in every
+        // launch mode: plain -javaagent, self-bootstrapped shim, and
+        // -Xbootclasspath/a — the system classpath always exposes the merged
+        // service files while parent delegation keeps provider classes
+        // defined by the bootstrap loader alongside the registry.
         for (HookProvider provider : ServiceLoader.load(HookProvider.class)) {
             if (provider.matchesProfile(profile)) {
                 provider.register(inst);

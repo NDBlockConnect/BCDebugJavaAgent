@@ -35,21 +35,33 @@ Output: `build/libs/bcdebug-javaagent-v26.0-Alpha.1.jar`
 ## Usage
 
 ```powershell
-# Minecraft client (vanilla / mdl): plain -javaagent is sufficient
+# Minecraft client or dedicated server — a bare -javaagent is sufficient.
+# The shim self-appends its embedded jar to the bootstrap classpath at runtime,
+# so no -Xbootclasspath/a is required in any launch mode.
 java -javaagent:bcdebug-javaagent.jar=logLevel=DEBUG,hookProfile=auto -jar minecraft.jar
 
-# Dedicated server (1.21+ bundler launches the game in an isolated classloader —
-# the bootstrap flag makes agent classes visible to the injected bytecode):
-java -Xbootclasspath/a:bcdebug-javaagent.jar ^
-     -javaagent:bcdebug-javaagent.jar=logLevel=DEBUG,hookProfile=1.21,enableHttp=true ^
-     -jar server.jar nogui
+java -javaagent:bcdebug-javaagent.jar=logLevel=DEBUG,hookProfile=1.21,enableHttp=true -jar server.jar nogui
 
 # Standalone test
 java -javaagent:bcdebug-javaagent.jar=logLevel=DEBUG,classfilters=dev.blockconnect.bcagent.test -cp test-classes dev.blockconnect.bcagent.test.TestTarget
 ```
 
-> **Note** — a future Alpha will embed a bootstrap sub-jar so the server path
-> also works with a bare `-javaagent` (self-bootstrapping agent).
+### Control plane transports
+
+With `enableHttp=true` the agent prefers the JDK `com.sun.net.httpserver`
+frontend. In environments where that module is not linkable from bootstrap
+code (notably bundler-based dedicated servers), it automatically degrades to a
+raw-socket implementation serving the same endpoints.
+
+## Known Limitations
+
+- **Boot-window coverage gap (pre-existing):** classes loaded by vanilla's
+  spawned worker/server threads during the middle of startup (e.g.
+  `ServerLevel`, world/entity packages) may miss transformation, while classes
+  loaded before that window and at runtime are instrumented normally.
+  Investigated in Alpha.4; root cause under investigation. Method/hook
+  coverage therefore focuses on bootstrap-phase and runtime-triggered loads.
+- `1.12` profile remains planned (requires legacy JDK 8 artifact).
 
 ### Configuration Keys
 
@@ -85,7 +97,6 @@ java -javaagent:bcdebug-javaagent.jar=logLevel=DEBUG,classfilters=dev.blockconne
 | 1.12.2 | 8 | `1.12` | Planned (requires legacy JDK 8 artifact) |
 
 ### Profile auto-detection
-
 With `hookProfile=auto` (default), the agent resolves the active profile at
 startup:
 

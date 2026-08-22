@@ -50,8 +50,74 @@ subprojects {
     }
 }
 
-tasks.register('fatJar', Jar) {
+def runtimeDeps = project(':bc-agent').configurations.runtimeClasspath
+    .filter { it.isFile() && it.name.endsWith('.jar') && !it.path.contains('bc-agent') }
+
+// Merges META-INF/services entries across all input jars into targetDir.
+// A plain EXCLUDE strategy would keep only the first module's service file and
+// silently drop hook providers registered by other modules.
+def collectServices = { jars, String targetDir ->
+    delete(targetDir)
+    file(targetDir).mkdirs()
+    def servicesByName = new LinkedHashMap<String, LinkedHashSet<String>>()
+    jars.findAll { it.isFile() }.each { jar ->
+        def zf = new java.util.zip.ZipFile(jar)
+        try {
+            zf.entries().each { e ->
+                if (!e.isDirectory() && e.name.startsWith('META-INF/services/')) {
+                    def lines = (zf.getInputStream(e).getText('UTF-8') ?: '')
+                        .readLines()*.trim().findAll { it && !it.startsWith('#') }
+                    servicesByName.computeIfAbsent(e.name, { new LinkedHashSet<String>() })
+                        .addAll(lines)
+                }
+            }
+        } finally {
+            zf.close()
+        }
+    }
+    servicesByName.each { entry, impls ->
+        new File(targetDir, entry.substring('META-INF/services/'.length())).text = impls.join('\n') + '\n'
+    }
+}
+
+/**
+ * Inner jar with every agent class except the BCAgent shim: core, hooks,
+ * control plane plus shaded ASM/Gson and merged SPI services. At runtime the
+ * shim appends this jar to the bootstrap class loader search so agent classes
+ * resolve from one consistent loader regardless of game-side classloading.
+ */
+tasks.register('bootstrapJar', Jar) {
     dependsOn subprojects.jar
+
+    destinationDirectory = layout.buildDirectory.dir('libs')
+    archiveFileName = "bcdebug-javaagent-bootstrap-${agent_version}.jar"
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+    doFirst {
+        collectServices(
+            subprojects.collectMany { it.tasks.jar.outputs.files.files } + runtimeDeps.files,
+            "${buildDir}/tmp/bootstrap-merged-services")
+    }
+
+    from(subprojects.collect {
+        it.tasks.jar.outputs.files.collect { f -> zipTree(f) }
+    }) {
+        exclude 'META-INF/services/**'
+        exclude 'dev/blockconnect/bcagent/BCAgent.class'
+        exclude 'dev/blockconnect/bcagent/BCAgent$*.class'
+    }
+
+    from(runtimeDeps.collect { zipTree(it) }) {
+        exclude 'META-INF/services/**'
+    }
+
+    from("${buildDir}/tmp/bootstrap-merged-services") {
+        into 'META-INF/services'
+    }
+}
+
+tasks.register('fatJar', Jar) {
+    dependsOn tasks.bootstrapJar
 
     archiveBaseName = 'bcdebug-javaagent'
     archiveVersion = agent_version
@@ -60,55 +126,17 @@ tasks.register('fatJar', Jar) {
 
     destinationDirectory = layout.buildDirectory.dir('libs')
 
-    def runtimeDeps = project(':bc-agent').configurations.runtimeClasspath
-        .filter { it.isFile() && it.name.endsWith('.jar') && !it.path.contains('bc-agent') }
-
-    // Merge SPI service files across all input jars. A plain EXCLUDE strategy
-    // would keep only the first module's META-INF/services entries and silently
-    // drop hook providers registered by other modules.
-    doFirst {
-        def mergedDir = file("${buildDir}/tmp/fatJar-merged-services")
-        delete(mergedDir)
-        mergedDir.mkdirs()
-
-        def inputJars = subprojects.collectMany { it.tasks.jar.outputs.files.files } +
-                        runtimeDeps.files
-        def servicesByName = new LinkedHashMap<String, LinkedHashSet<String>>()
-
-        inputJars.findAll { it.isFile() }.each { jar ->
-            def zf = new java.util.zip.ZipFile(jar)
-            try {
-                zf.entries().each { e ->
-                    if (!e.isDirectory() && e.name.startsWith('META-INF/services/')) {
-                        def lines = (zf.getInputStream(e).getText('UTF-8') ?: '')
-                            .readLines()*.trim().findAll { it && !it.startsWith('#') }
-                        servicesByName.computeIfAbsent(e.name, { new LinkedHashSet<String>() })
-                            .addAll(lines)
-                    }
-                }
-            } finally {
-                zf.close()
-            }
-        }
-
-        servicesByName.each { entry, impls ->
-            def out = new File(mergedDir, entry.substring('META-INF/services/'.length()))
-            out.text = impls.join('\n') + '\n'
-        }
+    // Outer jar carries ONLY the reflective shim.
+    from(project(':bc-agent').sourceSets.main.output) {
+        include 'dev/blockconnect/bcagent/BCAgent.class'
+        include 'dev/blockconnect/bcagent/BCAgent$*.class'
     }
 
-    from(subprojects.collect {
-        it.tasks.jar.outputs.files.collect { f -> zipTree(f) }
-    }) {
-        exclude 'META-INF/services/**'
-    }
-
-    from(runtimeDeps.collect { zipTree(it) }) {
-        exclude 'META-INF/services/**'
-    }
-
-    from("${buildDir}/tmp/fatJar-merged-services") {
-        into 'META-INF/services'
+    // Embedded bootstrap jar, extracted to a temp file by the shim at runtime.
+    // Fixed resource name — the shim looks it up by constant.
+    into('META-INF/bootstrap') {
+        from tasks.bootstrapJar.archiveFile
+        rename { 'bcdebug-bootstrap.jar' }
     }
 
     manifest {

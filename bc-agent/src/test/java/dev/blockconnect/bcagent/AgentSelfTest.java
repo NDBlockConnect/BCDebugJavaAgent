@@ -8,8 +8,9 @@ public class AgentSelfTest {
 
     public static void main(String[] args) throws Exception {
         System.out.println("=== BCDebugJavaAgent Self-Test ===");
-        System.out.println("Agent initialized: " + BCAgent.isInitialized());
-        System.out.println("Config: " + BCAgent.getConfig());
+        System.out.println("Shim bootstrapped: " + BCAgent.isBootstrapped());
+        System.out.println("Agent initialized: " + dev.blockconnect.bcagent.AgentBootstrap.isInitialized());
+        System.out.println("Config: " + dev.blockconnect.bcagent.AgentBootstrap.getConfig());
 
         // Force a class load that matches our filters to trigger instrumentation
         try {

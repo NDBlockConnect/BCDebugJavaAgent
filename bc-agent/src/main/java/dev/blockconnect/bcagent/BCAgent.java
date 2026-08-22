@@ -1,112 +1,115 @@
 package dev.blockconnect.bcagent;
 
-import dev.blockconnect.bcagent.core.*;
-
+import java.io.File;
+import java.io.InputStream;
 import java.lang.instrument.Instrumentation;
-import java.util.jar.Attributes;
-import java.util.jar.Manifest;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.util.jar.JarFile;
 
-public class BCAgent {
+/**
+ * Minimal premain/agentmain shim.
+ * <p>
+ * This class deliberately contains <b>no</b> compile-time references to any
+ * other agent class. Launch environments resolve {@code Premain-Class} through
+ * the application loader; if this shim referenced core classes directly, they
+ * would be defined by the application loader before we can relocate them,
+ * producing cross-loader linkage errors. Instead the shim:
+ *
+ * <ol>
+ *   <li>locates its own agent JAR,</li>
+ *   <li>extracts the embedded bootstrap JAR to a temp file,</li>
+ *   <li>appends it to the bootstrap class loader search
+ *       ({@link Instrumentation#appendToBootstrapClassLoaderSearch}), making
+ *       every agent class visible to isolated game classloaders (MC 1.21+
+ *       bundler servers) without an external {@code -Xbootclasspath/a},</li>
+ *   <li>forces the bootstrap loader to define the entry class via a
+ *       parent-less classloader, and hands off reflectively.</li>
+ * </ol>
+ */
+public final class BCAgent {
 
-    private static final String AGENT_NAME = "BCDebugJavaAgent";
-    private static final String FALLBACK_VERSION = "v26.0-Alpha.3";
-    private static String agentVersion;
+    static final String BOOTSTRAP_RESOURCE = "META-INF/bootstrap/bcdebug-bootstrap.jar";
+    static final String BOOTSTRAP_ENTRY_CLASS = "dev.blockconnect.bcagent.AgentBootstrap";
 
-    private static volatile boolean initialized = false;
-    private static AgentConfig config;
-    private static Instrumentation instrumentation;
+    private static volatile boolean bootstrapped = false;
+
+    /** Strong reference: JarFile must stay open for the JVM lifetime. */
+    private static volatile JarFile bootstrapJarHandle;
+
+    private BCAgent() {}
 
     public static void premain(String args, Instrumentation inst) {
-        initAgent(args, inst, false);
+        run(args, inst);
     }
 
     public static void agentmain(String args, Instrumentation inst) {
-        initAgent(args, inst, true);
+        run(args, inst);
     }
 
-    private static synchronized void initAgent(String args, Instrumentation inst,
-                                                 boolean isAttach) {
-        if (initialized) {
-            AgentLogger.getInstance().warn(AGENT_NAME + " already initialized — skipping");
-            return;
-        }
-        initialized = true;
-
-        config = AgentConfig.parse(args);
-        instrumentation = inst;
-
-        AgentLogger.init(config);
-        agentVersion = detectVersion();
-
-        AgentLogger log = AgentLogger.getInstance();
-        log.info("========================================");
-        log.info(AGENT_NAME + " " + agentVersion);
-        log.info("========================================");
-
-        if (config.verbose) {
-            log.info("Config: " + config);
-            log.info("Attach mode: " + isAttach);
-            log.info("Instrumentation: " + inst.getClass().getName());
-            log.info("Can retransform: " + inst.isRetransformClassesSupported());
-            log.info("Can redefine: " + inst.isRedefineClassesSupported());
-            log.info("Java version: " + System.getProperty("java.version"));
-            log.info("Java vendor: " + System.getProperty("java.vendor"));
-            log.info("OS: " + System.getProperty("os.name") + " " + System.getProperty("os.version"));
-        }
-
-        BCTransformer bcTransformer = new BCTransformer(config);
-        inst.addTransformer(bcTransformer, true);
-        log.info("Registered BCTransformer (method logging)");
-
-        HookTransformer hookTransformer = new HookTransformer();
-        inst.addTransformer(hookTransformer, true);
-        log.info("Registered HookTransformer");
-
-        HookRegistry.getInstance().init(config, inst);
-
-        if (config.exportOnShutdown) {
-            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-                log.info("JVM shutdown — exporting records...");
-                RecordExporter.exportAll(config.outputDir);
-                log.info("Export complete. Total method records: "
-                    + MethodRecorder.methodCount());
-            }, "BCDebug-Shutdown"));
-            log.info("Registered shutdown hook for log export");
-        }
-
-        if (config.enableHttpServer) {
-            try {
-                ControlServer server = new ControlServer(config.httpPort, config);
-                server.start();
-                log.info("HTTP control server started on port " + config.httpPort);
-            } catch (Throwable t) {
-                log.error("Failed to start HTTP server: " + t.getMessage(), t);
-            }
-        }
-
-        log.info(AGENT_NAME + " initialization complete");
-        log.info("Method recorder active — instrumented classes matching: "
-            + String.join(";", config.classFilters));
-    }
-
-    private static String detectVersion() {
+    private static synchronized void run(String args, Instrumentation inst) {
+        if (bootstrapped) return;
         try {
-            java.net.URL url = BCAgent.class.getResource("/META-INF/MANIFEST.MF");
-            if (url != null) {
-                Manifest manifest = new Manifest(url.openStream());
-                Attributes attr = manifest.getMainAttributes();
-                String version = attr.getValue("Implementation-Version");
-                if (version != null && !version.isEmpty()) {
-                    return version;
-                }
+            File self = locateSelf();
+            File bootstrapJar = extractNestedJar(self, BOOTSTRAP_RESOURCE);
+
+            bootstrapJarHandle = new JarFile(bootstrapJar);
+            // Bootstrap append: guarantees one consistent definition site for
+            // agent classes even under isolated game classloaders.
+            inst.appendToBootstrapClassLoaderSearch(bootstrapJarHandle);
+            // System append: programmatic boot-append exposes CLASSES to the
+            // bootstrap loader but NOT resources (its resource URLClassPath is
+            // snapshotted at JVM start). Appending to the system search as well
+            // lets ServiceLoader/getResources see META-INF/services while
+            // parent-first delegation keeps the bootstrap definitions canonical.
+            try {
+                inst.appendToSystemClassLoaderSearch(bootstrapJarHandle);
+            } catch (Throwable secondaryFailure) {
+                // Non-fatal: only SPI-style discovery degrades.
             }
-        } catch (Exception ignored) {
+
+            // Parent-less loader delegates straight to the bootstrap loader,
+            // guaranteeing the entry class (and everything it pulls in) is
+            // defined exactly once, by the bootstrap loader.
+            ClassLoader bootOnly = new ClassLoader(null) {};
+            Class<?> entry = Class.forName(BOOTSTRAP_ENTRY_CLASS, true, bootOnly);
+            entry.getMethod("bootstrap", String.class, Instrumentation.class)
+                .invoke(null, args, inst);
+
+            bootstrapped = true;
+        } catch (Throwable t) {
+            System.err.println("[BCDebugJavaAgent] Bootstrap failed: " + t);
         }
-        return FALLBACK_VERSION;
     }
 
-    public static AgentConfig getConfig() { return config; }
-    public static Instrumentation getInstrumentation() { return instrumentation; }
-    public static boolean isInitialized() { return initialized; }
-    public static String getVersion() { return agentVersion != null ? agentVersion : FALLBACK_VERSION; }
+    private static File locateSelf() throws Exception {
+        return new File(BCAgent.class.getProtectionDomain()
+            .getCodeSource().getLocation().toURI());
+    }
+
+    /**
+     * Extracts a nested JAR entry to a temporary file. JarFile cannot read
+     * nested archives in place, and appendToBootstrapClassLoaderSearch needs a
+     * real file path.
+     */
+    private static File extractNestedJar(File self, String resource) throws Exception {
+        try (JarFile outer = new JarFile(self)) {
+            java.util.jar.JarEntry entry = outer.getJarEntry(resource);
+            if (entry == null) {
+                throw new IllegalStateException(
+                    "Missing " + resource + " inside " + self.getName()
+                    + " — not a BCDebugJavaAgent fat jar?");
+            }
+            Path target = Files.createTempFile("bcdebug-bootstrap-", ".jar");
+            try (InputStream in = outer.getInputStream(entry)) {
+                Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
+            }
+            target.toFile().deleteOnExit();
+            return target.toFile();
+        }
+    }
+
+    /** Compatibility accessor — real state lives in AgentBootstrap. */
+    public static boolean isBootstrapped() { return bootstrapped; }
 }
