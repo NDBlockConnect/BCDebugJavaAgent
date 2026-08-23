@@ -61,7 +61,7 @@ public final class RecordExporter {
         for (MethodRecorder.MethodStats s : snapshot.values()) {
             MethodStatEntry e = new MethodStatEntry();
             e.className = displayClassName(s.className);
-            e.methodName = s.methodName;
+            e.methodName = displayMethodName(s.className, s.methodName, s.descriptor);
             e.descriptor = s.descriptor;
             e.entryCount = s.entryCount.get();
             e.exitCount = s.exitCount.get();
@@ -81,6 +81,16 @@ public final class RecordExporter {
     public static String displayClassName(String runtimeName) {
         RuntimeMappings mappings = HookRegistry.getInstance().getMappings();
         return mappings != null ? mappings.toDeobfName(runtimeName) : runtimeName;
+    }
+
+    /** Display-friendly method name: reverse-translated when mappings active.
+     *  Lookup uses the raw runtime class name as mapping key. */
+    public static String displayMethodName(String runtimeClass, String runtimeMethod,
+                                            String descriptor) {
+        RuntimeMappings mappings = HookRegistry.getInstance().getMappings();
+        return mappings != null
+            ? mappings.toDeobfMethodName(runtimeClass, runtimeMethod, descriptor)
+            : runtimeMethod;
     }
 
     private static final class LogEntry {

@@ -32,6 +32,12 @@ public final class RuntimeMappings {
     private volatile Map<String, String> reverseClassMap;
 
     /**
+     * Lazily built reverse method view:
+     * runtime internal class name -> (runtimeMethodName|jvmDescriptor -> deobfMethodName).
+     */
+    private volatile Map<String, Map<String, String>> reverseMethodMap;
+
+    /**
      * deobf internal class name -> (methodLookupKey -> runtime method name),
      * where methodLookupKey = {@code deobfName + "|" + jvmDescriptor}.
      */
@@ -193,5 +199,46 @@ public final class RuntimeMappings {
         }
         String key = runtimeClassName.replace('.', '/');
         return reverse.getOrDefault(key, key);
+    }
+
+    /**
+     * Reverse method lookup for display/export: translate a runtime method
+     * name back to its Mojang name using the runtime class and the JVM
+     * descriptor. Returns the input when no mapping exists.
+     */
+    public String toDeobfMethodName(String runtimeClassName, String runtimeMethodName,
+                                      String jvmDescriptor) {
+        if (runtimeClassName == null || runtimeMethodName == null) return runtimeMethodName;
+        String key = runtimeClassName.replace('.', '/');
+        if (!classMap.containsValue(key)) return runtimeMethodName;
+
+        Map<String, Map<String, String>> rev = this.reverseMethodMap;
+        if (rev == null) {
+            synchronized (this) {
+                rev = reverseMethodMap;
+                if (rev == null) {
+                    rev = new HashMap<>(methodMap.size() * 2);
+                    for (Map.Entry<String, Map<String, String>> byClass
+                            : methodMap.entrySet()) {
+                        String runtimeClass = classMap.get(byClass.getKey());
+                        if (runtimeClass == null) continue;
+                        Map<String, String> bucket = rev.computeIfAbsent(
+                            runtimeClass, k -> new HashMap<>());
+                        for (Map.Entry<String, String> e : byClass.getValue().entrySet()) {
+                            // forward key: deobfName|desc -> obfName
+                            int bar = e.getKey().indexOf('|');
+                            String desc = bar >= 0 ? e.getKey().substring(bar + 1) : "";
+                            bucket.putIfAbsent(e.getValue() + "|" + desc, e.getKey());
+                        }
+                    }
+                    reverseMethodMap = rev;
+                }
+            }
+        }
+        Map<String, String> bucket = rev.get(key);
+        if (bucket == null) return runtimeMethodName;
+        String forward = bucket.get(runtimeMethodName + "|" + jvmDescriptor);
+        return forward != null ? forward.substring(0, forward.indexOf('|'))
+            : runtimeMethodName;
     }
 }

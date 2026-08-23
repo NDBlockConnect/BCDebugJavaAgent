@@ -19,7 +19,7 @@ import java.util.jar.Manifest;
 public final class AgentBootstrap {
 
     private static final String AGENT_NAME = "BCDebugJavaAgent";
-    private static final String FALLBACK_VERSION = "v26.0-Alpha.6";
+    private static final String FALLBACK_VERSION = "v26.0-Alpha.7";
     private static String agentVersion;
 
     private static volatile boolean initialized = false;
@@ -76,6 +76,24 @@ public final class AgentBootstrap {
                     + MethodRecorder.methodCount());
             }, "BCDebug-Shutdown"));
             log.info("Registered shutdown hook for log export");
+        }
+
+        if (config.exportIntervalSec > 0) {
+            java.util.concurrent.ScheduledExecutorService exporter =
+                java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+                    Thread t = new Thread(r, "BCDebug-PeriodicExport");
+                    t.setDaemon(true);
+                    return t;
+                });
+            exporter.scheduleAtFixedRate(() -> {
+                try {
+                    RecordExporter.exportAll(config.outputDir);
+                } catch (Throwable t) {
+                    log.error("Periodic export failed: " + t.getMessage(), t);
+                }
+            }, config.exportIntervalSec, config.exportIntervalSec,
+                java.util.concurrent.TimeUnit.SECONDS);
+            log.info("Periodic safety export every " + config.exportIntervalSec + "s");
         }
 
         if (config.enableHttpServer) {

@@ -38,6 +38,14 @@ public class AgentConfig {
     /** Whether to export logs as JSONL on JVM shutdown. */
     public boolean exportOnShutdown = true;
 
+    /**
+     * Periodic safety export interval in seconds (0 = disabled). Writes the
+     * same artifacts as shutdown export on a fixed schedule so data survives
+     * hard kills; each run overwrites {@code bcdebug-logs.jsonl} and
+     * {@code bcdebug-method-stats.json}.
+     */
+    public int exportIntervalSec = 0;
+
     /** Log level: TRACE, DEBUG, INFO, WARN, ERROR. */
     public String logLevel = "INFO";
 
@@ -108,6 +116,7 @@ public class AgentConfig {
             case "logclassload"    -> logClassLoad = Boolean.parseBoolean(val);
             case "enablehooks"     -> enableHooks = Boolean.parseBoolean(val);
             case "exportonshutdown" -> exportOnShutdown = Boolean.parseBoolean(val);
+            case "exportintervalsec" -> exportIntervalSec = parseInt(val, exportIntervalSec);
             case "loglevel"        -> logLevel = val.toUpperCase();
             case "logfile"         -> logFile = Boolean.parseBoolean(val);
             case "enablehttp"      -> enableHttpServer = Boolean.parseBoolean(val);

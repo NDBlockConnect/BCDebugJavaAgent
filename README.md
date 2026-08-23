@@ -73,9 +73,10 @@ raw-socket implementation serving the same endpoints.
   targets written in Mojang names are translated to runtime names — classes
   and methods, with JVM descriptors disambiguating overloads. MC 26.x ships
   unobfuscated and needs no mappings.
-- Method statistics always report runtime (possibly obfuscated) class names;
-  extend `classFilters` with obfuscated prefixes if full game-code recording
-  is required on legacy jars.
+- Method statistics report deobfuscated class and method names when mappings
+  are active; unresolved methods keep their runtime names, and JVM descriptors
+  always contain runtime references. Extend `classFilters` with obfuscated
+  prefixes if full game-code recording is required on legacy jars.
 - `1.12` profile remains planned (requires legacy JDK 8 artifact).
 
 ### Configuration Keys

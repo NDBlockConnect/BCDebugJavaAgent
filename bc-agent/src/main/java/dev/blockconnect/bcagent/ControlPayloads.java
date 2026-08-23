@@ -41,7 +41,8 @@ final class ControlPayloads {
         for (MethodRecorder.MethodStats s : stats.values()) {
             Map<String, Object> entry = new LinkedHashMap<>();
             entry.put("class", RecordExporter.displayClassName(s.className));
-            entry.put("method", s.methodName);
+            entry.put("method", RecordExporter.displayMethodName(
+                s.className, s.methodName, s.descriptor));
             entry.put("descriptor", s.descriptor);
             entry.put("entries", s.entryCount.get());
             entry.put("exits", s.exitCount.get());

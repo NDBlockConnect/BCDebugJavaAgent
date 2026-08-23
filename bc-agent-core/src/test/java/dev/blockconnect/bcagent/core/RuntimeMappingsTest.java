@@ -48,6 +48,26 @@ class RuntimeMappingsTest {
     }
 
     @Test
+    void reverseMethodLookupRestoresDeobfNames() throws IOException {
+        RuntimeMappings m = RuntimeMappings.load(writeMappings(String.join("\n",
+            "net.minecraft.server.level.ServerLevel -> aqu:",
+            "    303:419:void tick(java.util.function.BooleanSupplier) -> a",
+            "    522:564:void tick(boolean) -> c")));
+        String runtimeClass = m.toRuntimeName("net/minecraft/server/level/ServerLevel");
+        assertEquals("aqu", runtimeClass);
+
+        // Forward then back round-trips for both overloads
+        assertEquals("tick", m.toDeobfMethodName(runtimeClass, "a",
+            "(Ljava/util/function/BooleanSupplier;)V"));
+        assertEquals("tick", m.toDeobfMethodName(runtimeClass, "c", "(Z)V"));
+
+        // Unknown runtime names pass through
+        assertEquals("zz", m.toDeobfMethodName(runtimeClass, "zz", "()V"));
+        assertEquals("whatever", m.toDeobfMethodName(
+            "com/unmapped/Klass", "whatever", "()V"));
+    }
+
+    @Test
     void indentedMethodLinesAreIgnored() throws IOException {
         RuntimeMappings m = RuntimeMappings.load(writeMappings(String.join("\n",
             "net.minecraft.Util -> uv:",
