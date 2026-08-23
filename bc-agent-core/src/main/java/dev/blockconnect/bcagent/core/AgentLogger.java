@@ -46,9 +46,17 @@ public final class AgentLogger {
         logger.fileMirror = config.logFile;
     }
 
+    /** Change the effective level at runtime (control-plane operation). */
+    public static void setLiveLevel(String levelName) {
+        instance.level = Level.fromString(levelName);
+    }
+
+    public static String getLevelName() {
+        return instance.level.name();
+    }
+
     /** Close the live mirror (called from the shutdown hook before export). */
-    public static void closeLiveMirror() {
-        AgentLogger logger = instance;
+    public static void closeLiveMirror() {        AgentLogger logger = instance;
         java.io.BufferedWriter w = logger.liveMirror;
         if (w != null) {
             logger.liveMirror = null;

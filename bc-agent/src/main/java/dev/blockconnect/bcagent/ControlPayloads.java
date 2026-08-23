@@ -75,4 +75,11 @@ final class ControlPayloads {
         result.put("files", files);
         return result;
     }
+
+    static Map<String, Object> logLevelChanged(String newLevel) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("logLevel", newLevel);
+        result.put("changed", true);
+        return result;
+    }
 }

@@ -34,6 +34,33 @@ public class ControlServer implements ControlPlane {
             sendJson(exchange, 200, ControlPayloads.methods())));
         server.createContext("/logs", exchange -> safe(exchange, () ->
             sendJson(exchange, 200, ControlPayloads.logs(100))));
+        server.createContext("/classes", exchange -> safe(exchange, () -> {
+            java.util.Map<String, String> q = query(exchange.getRequestURI().getRawQuery());
+            sendJson(exchange, 200, AgentBootstrap.findLoadedClasses(
+                q.getOrDefault("contains", ""),
+                parseInt(q.getOrDefault("limit", "50"), 50)));
+        }));
+        server.createContext("/log-level", exchange -> safe(exchange, () -> {
+            if (!"POST".equals(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed");
+                return;
+            }
+            java.util.Map<String, String> q = query(exchange.getRequestURI().getRawQuery());
+            String level = q.get("level");
+            if (level == null || level.isBlank()) {
+                sendText(exchange, 400, "Missing ?level=");
+                return;
+            }
+            sendJson(exchange, 200,
+                ControlPayloads.logLevelChanged(AgentBootstrap.setLogLevel(level)));
+        }));
+        server.createContext("/hooks/reload", exchange -> safe(exchange, () -> {
+            if (!"POST".equals(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed");
+                return;
+            }
+            sendJson(exchange, 200, AgentBootstrap.reloadHooks());
+        }));
         server.createContext("/export", exchange -> safe(exchange, () -> {
             if (!"POST".equals(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed");
@@ -43,6 +70,26 @@ public class ControlServer implements ControlPlane {
         }));
 
         server.setExecutor(java.util.concurrent.Executors.newFixedThreadPool(2));
+    }
+
+    private static java.util.Map<String, String> query(String rawQuery) {
+        java.util.Map<String, String> map = new java.util.LinkedHashMap<>();
+        if (rawQuery == null || rawQuery.isBlank()) return map;
+        for (String pair : rawQuery.split("&")) {
+            int eq = pair.indexOf('=');
+            if (eq <= 0) continue;
+            map.put(urlDecode(pair.substring(0, eq)),
+                urlDecode(pair.substring(eq + 1)));
+        }
+        return map;
+    }
+
+    private static String urlDecode(String s) {
+        return java.net.URLDecoder.decode(s, java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    private static int parseInt(String s, int def) {
+        try { return Integer.parseInt(s); } catch (Exception e) { return def; }
     }
 
     @Override

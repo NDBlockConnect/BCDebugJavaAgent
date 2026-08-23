@@ -19,7 +19,7 @@ import java.util.jar.Manifest;
 public final class AgentBootstrap {
 
     private static final String AGENT_NAME = "BCDebugJavaAgent";
-    private static final String FALLBACK_VERSION = "v26.0-Alpha.7";
+    private static final String FALLBACK_VERSION = "v26.0-Alpha.8";
     private static String agentVersion;
 
     private static volatile boolean initialized = false;
@@ -141,4 +141,36 @@ public final class AgentBootstrap {
     public static Instrumentation getInstrumentation() { return instrumentation; }
     public static boolean isInitialized() { return initialized; }
     public static String getVersion() { return agentVersion != null ? agentVersion : FALLBACK_VERSION; }
+
+    // ── Runtime operations (invoked from the control plane) ──
+
+    /** Change the effective log level without restarting the game. */
+    public static String setLogLevel(String levelName) {
+        String previous = AgentLogger.getLevelName();
+        AgentLogger.setLiveLevel(levelName);
+        if (config != null) config.logLevel = levelName.toUpperCase();
+        AgentLogger.getInstance().info(
+            "Log level changed: " + previous + " -> " + levelName.toUpperCase());
+        return levelName.toUpperCase();
+    }
+
+    /**
+     * Re-resolve mappings and retranslate already-loaded hook target classes
+     * so hooks missed during boot still inject. See {@link HookRegistry#reload}.
+     */
+    public static java.util.Map<String, Object> reloadHooks() {
+        return HookRegistry.getInstance().reload(instrumentation, config);
+    }
+
+    /** Search loaded classes by name substring (control-plane introspection). */
+    public static java.util.List<String> findLoadedClasses(String contains, int limit) {
+        java.util.List<String> result = new java.util.ArrayList<>();
+        if (instrumentation == null) return result;
+        String needle = contains == null ? "" : contains;
+        for (Class<?> c : instrumentation.getAllLoadedClasses()) {
+            if (result.size() >= limit) break;
+            if (c.getName().contains(needle)) result.add(c.getName());
+        }
+        return result;
+    }
 }

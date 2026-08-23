@@ -26,6 +26,11 @@ public class BCTransformer implements ClassFileTransformer {
                              byte[] classfileBuffer) {
         if (className == null) return null;
 
+        // General method logging is first-load-only: re-running the advice
+        // adapter over already-instrumented bytes would double-count entries
+        // and corrupt timing. Retransforms therefore leave these classes as-is.
+        if (classBeingRedefined != null) return null;
+
         if (!config.matchesClass(className.replace('/', '.'))) {
             return null;
         }

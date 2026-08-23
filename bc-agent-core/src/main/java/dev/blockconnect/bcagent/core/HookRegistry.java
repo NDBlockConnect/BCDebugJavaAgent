@@ -24,6 +24,12 @@ public final class HookRegistry {
     /** Active hook providers. */
     private final List<HookProvider> providers = new ArrayList<>();
 
+    /** Pristine provider snapshot (Mojang names) — source of truth for rebuilds. */
+    private final List<MethodHook> originalHooks = new ArrayList<>();
+
+    /** Guards against double-injection across load/retransform passes. */
+    private final HookInjectionTracker injectionTracker = new HookInjectionTracker();
+
     /** Whether hooks are active. */
     private volatile boolean active = false;
 
@@ -60,6 +66,7 @@ public final class HookRegistry {
                 providers.add(provider);
                 for (MethodHook hook : provider.getHooks()) {
                     registerHook(hook);
+                    originalHooks.add(hook);
                 }
                 AgentLogger.getInstance().info(
                     "Loaded hook provider: " + provider.name()
@@ -75,11 +82,58 @@ public final class HookRegistry {
                 + " classes, " + providers.size() + " providers");
         }
 
-        if (active && config.mappingsFile != null && !config.mappingsFile.isBlank()) {
+        if (active && !config.mappingsFile.isBlank()) {
             applyMappingsFromFile(config.mappingsFile);
         } else if (active && config.mappingsAuto) {
             applyMappingsAuto(config);
         }
+    }
+
+    /**
+     * Re-resolve mappings (explicit file or auto discovery) and re-translate
+     * hook targets from the pristine provider snapshot, then retransform
+     * already-loaded target classes so hooks missed during boot still inject.
+     *
+     * @return summary counters for the control-plane response
+     */
+    public synchronized Map<String, Object> reload(Instrumentation inst,
+                                                    AgentConfig config) {
+        Map<String, Object> summary = new java.util.LinkedHashMap<>();
+        int before = totalHooks();
+        if (!config.mappingsFile.isBlank()) {
+            applyMappingsFromFile(config.mappingsFile);
+        } else {
+            // An explicit reload IS the user intent: resolve mappings even
+            // when mappingsAuto was left off at boot.
+            applyMappingsAuto(config);
+        }
+        summary.put("hooks", totalHooks());
+        summary.put("hookClasses", hooksByClass.size());
+
+        int retransformed = 0;
+        int failed = 0;
+        Class<?>[] loaded = inst.getAllLoadedClasses();
+        for (String target : hooksByClass.keySet()) {
+            String dotted = target.replace('/', '.');
+            for (Class<?> c : loaded) {
+                if (c.getName().equals(dotted)) {
+                    try {
+                        inst.retransformClasses(c);
+                        retransformed++;
+                    } catch (Throwable t) {
+                        failed++;
+                        AgentLogger.getInstance().error(
+                            "Retransform failed for " + dotted + ": " + t.getMessage(), t);
+                    }
+                    break;
+                }
+            }
+        }
+        summary.put("retransformed", retransformed);
+        summary.put("failed", failed);
+        AgentLogger.getInstance().info("Hooks reload: " + before + "->" + totalHooks()
+            + " hooks, retransformed " + retransformed + " classes (" + failed + " failed)");
+        return summary;
     }
 
     /**
@@ -123,31 +177,31 @@ public final class HookRegistry {
         }
     }
 
-    /** Shared hook-target translation + registry rebuild. */
+    /** Shared hook-target translation + registry rebuild.
+     *  Always rebuilds from the pristine snapshot so repeated reloads are
+     *  idempotent (no double translation). */
     private void translateWith(RuntimeMappings resolved) {
         Map<String, List<MethodHook>> translated = new ConcurrentHashMap<>();
         int rewrittenClasses = 0;
         int rewrittenMethods = 0;
-        for (List<MethodHook> hooks : hooksByClass.values()) {
-            for (MethodHook hook : hooks) {
-                String runtimeClass = resolved.toRuntimeName(hook.className);
-                String runtimeMethod = resolved.toRuntimeMethodName(
-                    hook.className, hook.methodName, hook.descriptor);
+        for (MethodHook hook : originalHooks) {
+            String runtimeClass = resolved.toRuntimeName(hook.className);
+            String runtimeMethod = resolved.toRuntimeMethodName(
+                hook.className, hook.methodName, hook.descriptor);
 
-                if (runtimeClass.equals(hook.className)
-                    && runtimeMethod.equals(hook.methodName)) {
-                    translated.computeIfAbsent(hook.className,
-                        k -> new ArrayList<>()).add(hook);
-                    continue;
-                }
-                if (!runtimeClass.equals(hook.className)) rewrittenClasses++;
-                if (!runtimeMethod.equals(hook.methodName)) rewrittenMethods++;
-                MethodHook effective = new MethodHook(runtimeClass, runtimeMethod,
-                    hook.descriptor, hook.onEnter, hook.onExit,
-                    hook.catchExceptions, hook.description);
-                translated.computeIfAbsent(effective.className,
-                    k -> new ArrayList<>()).add(effective);
+            if (runtimeClass.equals(hook.className)
+                && runtimeMethod.equals(hook.methodName)) {
+                translated.computeIfAbsent(hook.className,
+                    k -> new ArrayList<>()).add(hook);
+                continue;
             }
+            if (!runtimeClass.equals(hook.className)) rewrittenClasses++;
+            if (!runtimeMethod.equals(hook.methodName)) rewrittenMethods++;
+            MethodHook effective = new MethodHook(runtimeClass, runtimeMethod,
+                hook.descriptor, hook.onEnter, hook.onExit,
+                hook.catchExceptions, hook.description);
+            translated.computeIfAbsent(effective.className,
+                k -> new ArrayList<>()).add(effective);
         }
         hooksByClass.clear();
         hooksByClass.putAll(translated);
@@ -198,6 +252,12 @@ public final class HookRegistry {
 
     public boolean isActive() { return active; }
     public List<HookProvider> getProviders() { return providers; }
+
+    /** Injection dedup tracker shared with the hook transformer. */
+    public HookInjectionTracker getInjectionTracker() { return injectionTracker; }
+
+    /** Live target class names (internal format) — used by retransform reload. */
+    public java.util.Set<String> getTargetClassNames() { return hooksByClass.keySet(); }
 
     /** Total registered hooks. */
     public int totalHooks() {

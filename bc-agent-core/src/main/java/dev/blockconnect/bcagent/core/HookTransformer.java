@@ -8,14 +8,16 @@ import org.objectweb.asm.Opcodes;
 
 import java.lang.instrument.ClassFileTransformer;
 import java.security.ProtectionDomain;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
- * ClassFileTransformer that injects hook dispatch calls only into classes
- * that have registered hooks in {@link HookRegistry}.
+ * ClassFileTransformer that injects hook dispatch calls into classes holding
+ * registered hooks.
  * <p>
- * This is separate from {@link BCTransformer} (which does general logging) so
- * that the two concerns are decoupled and can be toggled independently.
+ * Retransform-safe: an injection tracker guarantees each method is instrument
+ * exactly once across initial load and later {@code retransformClasses}
+ * passes, so hot-reloading hooks never stacks duplicate dispatch calls.
  */
 public class HookTransformer implements ClassFileTransformer {
 
@@ -44,13 +46,23 @@ public class HookTransformer implements ClassFileTransformer {
         }
         if (hooks == null || hooks.isEmpty()) return null;
 
+        List<String[]> pendingClaims = new ArrayList<>(hooks.size());
         try {
             ClassReader reader = new ClassReader(classfileBuffer);
             ClassWriter writer = new ClassWriter(reader, ClassWriter.COMPUTE_MAXS);
 
-            reader.accept(new HookClassVisitor(writer, className, hooks), ClassReader.EXPAND_FRAMES);
+            reader.accept(new HookClassVisitor(writer, className, hooks,
+                registry.getInjectionTracker(), pendingClaims), ClassReader.EXPAND_FRAMES);
+
+            if (pendingClaims.isEmpty()) {
+                // Nothing new to inject (pure retransform of known methods).
+                return null;
+            }
             return writer.toByteArray();
         } catch (Throwable t) {
+            for (String[] claim : pendingClaims) {
+                registry.getInjectionTracker().release(claim[0], claim[1], claim[2]);
+            }
             AgentLogger.getInstance().error(
                 "Hook transform failed for " + className + ": " + t.getMessage(), t);
             return null;
@@ -60,11 +72,16 @@ public class HookTransformer implements ClassFileTransformer {
     static class HookClassVisitor extends org.objectweb.asm.ClassVisitor {
         private final String className;
         private final List<MethodHook> hooks;
+        private final HookInjectionTracker tracker;
+        private final List<String[]> pendingClaims;
 
-        HookClassVisitor(ClassVisitor cv, String className, List<MethodHook> hooks) {
+        HookClassVisitor(ClassVisitor cv, String className, List<MethodHook> hooks,
+                          HookInjectionTracker tracker, List<String[]> pendingClaims) {
             super(Opcodes.ASM9, cv);
             this.className = className;
             this.hooks = hooks;
+            this.tracker = tracker;
+            this.pendingClaims = pendingClaims;
         }
 
         @Override
@@ -77,16 +94,19 @@ public class HookTransformer implements ClassFileTransformer {
                 return mv;
             }
 
-            boolean hasMatch = false;
+            boolean anyNew = false;
             for (MethodHook hook : hooks) {
-                if (hook.matches(className, name, descriptor)) { hasMatch = true; break; }
+                if (!hook.matches(className, name, descriptor)) continue;
+                if (tracker.alreadyInjected(className, name, descriptor)) continue;
+                if (tracker.tryClaim(className, name, descriptor)) {
+                    pendingClaims.add(new String[]{className, name, descriptor});
+                    anyNew = true;
+                }
             }
+            if (!anyNew) return mv;
 
-            if (hasMatch) {
-                return new HookInjectingAdapter(Opcodes.ASM9, mv, access,
-                    className, name, descriptor, hooks);
-            }
-            return mv;
+            return new HookInjectingAdapter(Opcodes.ASM9, mv, access,
+                className, name, descriptor, hooks);
         }
     }
 }
