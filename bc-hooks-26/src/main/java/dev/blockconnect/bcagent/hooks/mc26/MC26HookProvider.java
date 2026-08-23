@@ -93,6 +93,32 @@ public class MC26HookProvider implements HookProvider {
             null, false,
             "World load/unload tracking"
         ));
+
+        // Minecraft.setScreen(Screen) — GUI transitions (client diagnosis)
+        hooks.add(new MethodHook(
+            "net/minecraft/client/Minecraft", "setScreen",
+            "(Lnet/minecraft/client/gui/screens/Screen;)V",
+            (cls, name, desc, args, result, exc) -> {
+                Object screen = args != null ? args[0] : null;
+                AgentLogger.getInstance().info("Screen: "
+                    + (screen == null ? "<null> (in-game HUD)" : screen.getClass().getSimpleName()));
+            },
+            null, false,
+            "GUI screen transition tracking"
+        ));
+
+        // Minecraft.pauseGame(boolean) — pause state changes (client diagnosis)
+        hooks.add(new MethodHook(
+            "net/minecraft/client/Minecraft", "pauseGame", "(Z)V",
+            (cls, name, desc, args, result, exc) -> {
+                if (args != null && args.length > 0) {
+                    AgentLogger.getInstance().info(
+                        (Boolean.TRUE.equals(args[0])) ? "Game paused" : "Game resumed");
+                }
+            },
+            null, false,
+            "Pause state tracking"
+        ));
     }
 
     @Override

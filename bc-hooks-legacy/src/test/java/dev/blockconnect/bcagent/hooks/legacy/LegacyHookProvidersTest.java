@@ -19,7 +19,7 @@ class LegacyHookProvidersTest {
         assertFalse(provider.matchesProfile("1.20"));
 
         List<MethodHook> hooks = provider.getHooks();
-        assertEquals(6, hooks.size());
+        assertEquals(8, hooks.size());
 
         // ServerLevel.tick takes a BooleanSupplier in 1.20.x/1.21.x
         boolean hasServerTick = hooks.stream().anyMatch(h ->
@@ -32,6 +32,15 @@ class LegacyHookProvidersTest {
         boolean hasRunTick = hooks.stream().anyMatch(h ->
             "runTick".equals(h.methodName) && "(Z)V".equals(h.descriptor));
         assertTrue(hasRunTick, "Minecraft.runTick(Z) hook missing");
+
+        // Client-diagnosis hooks: setScreen + pauseGame
+        boolean hasSetScreen = hooks.stream().anyMatch(h ->
+            "setScreen".equals(h.methodName)
+                && "(Lnet/minecraft/client/gui/screens/Screen;)V".equals(h.descriptor));
+        assertTrue(hasSetScreen, "Minecraft.setScreen(Screen) hook missing");
+        boolean hasPauseGame = hooks.stream().anyMatch(h ->
+            "pauseGame".equals(h.methodName) && "(Z)V".equals(h.descriptor));
+        assertTrue(hasPauseGame, "Minecraft.pauseGame(Z) hook missing");
     }
 
     @Test
@@ -42,8 +51,7 @@ class LegacyHookProvidersTest {
         assertFalse(provider.matchesProfile("1.21"));
         assertFalse(provider.matchesProfile("26"));
 
-        List<MethodHook> hooks = provider.getHooks();
-        assertEquals(6, hooks.size());
+        assertEquals(8, provider.getHooks().size());
     }
 
     @Test
