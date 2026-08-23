@@ -40,10 +40,10 @@ Output: `build/libs/bcdebug-javaagent-v26.0-Alpha.1.jar`
 # so no -Xbootclasspath/a is required in any launch mode.
 java -javaagent:bcdebug-javaagent.jar=logLevel=DEBUG,hookProfile=auto -jar minecraft.jar
 
-# Obfuscated legacy jar (1.20.x / 1.21.x stock server/client): point
-# mappingsFile at Mojang's published ProGuard txt so hook targets written in
-# Mojang names are translated to runtime names (classes AND methods).
-java -javaagent:bcdebug-javaagent.jar=logLevel=DEBUG,hookProfile=1.21,mappingsFile=server.txt,logFile=true -jar server.jar nogui
+# Obfuscated legacy jar (1.20.x / 1.21.x stock server/client): either point
+# mappingsFile at Mojang's published ProGuard txt, or let the agent resolve
+# and cache mappings automatically (mappingsAuto=true).
+java -javaagent:bcdebug-javaagent.jar=logLevel=DEBUG,hookProfile=1.21,mappingsAuto=true,logFile=true -jar server.jar nogui
 
 # Standalone test
 java -javaagent:bcdebug-javaagent.jar=logLevel=DEBUG,classfilters=dev.blockconnect.bcagent.test -cp test-classes dev.blockconnect.bcagent.test.TestTarget

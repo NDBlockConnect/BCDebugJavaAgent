@@ -28,6 +28,9 @@ public final class RuntimeMappings {
     /** deobf internal class name -> runtime internal class name. */
     private final Map<String, String> classMap = new HashMap<>();
 
+    /** Lazily built reverse view: runtime class name -> deobf name. */
+    private volatile Map<String, String> reverseClassMap;
+
     /**
      * deobf internal class name -> (methodLookupKey -> runtime method name),
      * where methodLookupKey = {@code deobfName + "|" + jvmDescriptor}.
@@ -164,5 +167,31 @@ public final class RuntimeMappings {
     public boolean hasMapping(String deobfClassName) {
         if (deobfClassName == null) return false;
         return classMap.containsKey(deobfClassName.replace('.', '/'));
+    }
+
+    /**
+     * Reverse lookup for display/export: translate a runtime (possibly
+     * obfuscated) internal name back to its Mojang name. Returns the input
+     * normalized to slashes when no reverse mapping exists.
+     */
+    public String toDeobfName(String runtimeClassName) {
+        if (runtimeClassName == null || runtimeClassName.isBlank()) {
+            return runtimeClassName;
+        }
+        Map<String, String> reverse = this.reverseClassMap;
+        if (reverse == null) {
+            synchronized (this) {
+                reverse = reverseClassMap;
+                if (reverse == null) {
+                    reverse = new HashMap<>(classMap.size() * 2);
+                    for (Map.Entry<String, String> e : classMap.entrySet()) {
+                        reverse.putIfAbsent(e.getValue(), e.getKey());
+                    }
+                    reverseClassMap = reverse;
+                }
+            }
+        }
+        String key = runtimeClassName.replace('.', '/');
+        return reverse.getOrDefault(key, key);
     }
 }

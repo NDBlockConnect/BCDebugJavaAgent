@@ -60,7 +60,7 @@ public final class RecordExporter {
         List<MethodStatEntry> entries = new ArrayList<>(snapshot.size());
         for (MethodRecorder.MethodStats s : snapshot.values()) {
             MethodStatEntry e = new MethodStatEntry();
-            e.className = s.className;
+            e.className = displayClassName(s.className);
             e.methodName = s.methodName;
             e.descriptor = s.descriptor;
             e.entryCount = s.entryCount.get();
@@ -75,6 +75,12 @@ public final class RecordExporter {
             w.write(GSON_PRETTY.toJson(entries));
         }
         return statsFile.toString();
+    }
+
+    /** Display-friendly class name: reverse-translated when mappings active. */
+    public static String displayClassName(String runtimeName) {
+        RuntimeMappings mappings = HookRegistry.getInstance().getMappings();
+        return mappings != null ? mappings.toDeobfName(runtimeName) : runtimeName;
     }
 
     private static final class LogEntry {

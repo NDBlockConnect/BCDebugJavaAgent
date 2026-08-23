@@ -65,6 +65,13 @@ public class AgentConfig {
      */
     public String mappingsFile = "";
 
+    /**
+     * When true and {@link #mappingsFile} is empty, resolve mappings
+     * automatically for detected legacy versions: reuse a cached file or
+     * download from Mojang's piston-meta. Ignored on unobfuscated versions.
+     */
+    public boolean mappingsAuto = false;
+
     /** Verbose agent startup logging. */
     public boolean verbose = false;
 
@@ -107,6 +114,7 @@ public class AgentConfig {
             case "httpport"        -> httpPort = parseInt(val, httpPort);
             case "hookprofile"     -> hookProfile = val;
             case "mappingsfile"    -> mappingsFile = val;
+            case "mappingsauto"    -> mappingsAuto = Boolean.parseBoolean(val);
             case "verbose"         -> verbose = Boolean.parseBoolean(val);
             default                -> { /* unknown key — ignore */ }
         }

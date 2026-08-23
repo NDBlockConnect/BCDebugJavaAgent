@@ -27,6 +27,9 @@ public final class HookRegistry {
     /** Whether hooks are active. */
     private volatile boolean active = false;
 
+    /** Mappings currently in effect (set by translateWith), or null. */
+    private volatile RuntimeMappings mappings;
+
     public static HookRegistry getInstance() {
         return INSTANCE;
     }
@@ -73,53 +76,89 @@ public final class HookRegistry {
         }
 
         if (active && config.mappingsFile != null && !config.mappingsFile.isBlank()) {
-            applyMappings(config.mappingsFile);
+            applyMappingsFromFile(config.mappingsFile);
+        } else if (active && config.mappingsAuto) {
+            applyMappingsAuto(config);
         }
     }
 
     /**
-     * Translate registered hook targets from Mojang (deobfuscated) names to
-     * the runtime names found in obfuscated legacy jars, using a ProGuard
-     * mapping file.
+     * Automatic mapping resolution for legacy (mapped) profiles: detect the
+     * game version, reuse the cache or download from piston-meta, then apply.
+     * Unobfuscated versions (26.x) skip this without any network access.
      */
-    private void applyMappings(String mappingsPath) {
+    private void applyMappingsAuto(AgentConfig config) {
         try {
-            RuntimeMappings mappings = RuntimeMappings.load(
-                java.nio.file.Paths.get(mappingsPath));
-            Map<String, List<MethodHook>> translated = new ConcurrentHashMap<>();
-            int rewrittenClasses = 0;
-            int rewrittenMethods = 0;
-            for (List<MethodHook> hooks : hooksByClass.values()) {
-                for (MethodHook hook : hooks) {
-                    String runtimeClass = mappings.toRuntimeName(hook.className);
-                    String runtimeMethod = mappings.toRuntimeMethodName(
-                        hook.className, hook.methodName, hook.descriptor);
-
-                    if (runtimeClass.equals(hook.className)
-                        && runtimeMethod.equals(hook.methodName)) {
-                        translated.computeIfAbsent(hook.className,
-                            k -> new ArrayList<>()).add(hook);
-                        continue;
-                    }
-                    if (!runtimeClass.equals(hook.className)) rewrittenClasses++;
-                    if (!runtimeMethod.equals(hook.methodName)) rewrittenMethods++;
-                    MethodHook effective = new MethodHook(runtimeClass, runtimeMethod,
-                        hook.descriptor, hook.onEnter, hook.onExit,
-                        hook.catchExceptions, hook.description);
-                    translated.computeIfAbsent(effective.className,
-                        k -> new ArrayList<>()).add(effective);
+            String mcVersion = McVersionDetector.detect();
+            String profile = McVersionDetector.toProfile(mcVersion);
+            if ("1.21".equals(profile) || "1.20".equals(profile)) {
+                AgentLogger.getInstance().info(
+                    "mappingsAuto: resolving " + mcVersion + " mappings …");
+                java.nio.file.Path cache = java.nio.file.Paths.get(
+                    config.outputDir, "mappings-cache");
+                RuntimeMappings resolved = MappingAutoDiscovery.acquire(mcVersion, cache);
+                if (resolved != null) {
+                    translateWith(resolved);
+                    return;
                 }
+                AgentLogger.getInstance().warn(
+                    "mappingsAuto: no mappings available — hooks stay unmapped");
+            } else {
+                AgentLogger.getInstance().info(
+                    "mappingsAuto: profile '" + profile
+                    + "' needs no runtime mappings (unobfuscated)");
             }
-            hooksByClass.clear();
-            hooksByClass.putAll(translated);
-            AgentLogger.getInstance().info("Applied " + mappings.size()
-                + " runtime mappings — " + rewrittenClasses
-                + " class targets / " + rewrittenMethods + " method targets translated");
+        } catch (Throwable t) {
+            AgentLogger.getInstance().error(
+                "mappingsAuto failed: " + t.getMessage(), t);
+        }
+    }
+
+    private void applyMappingsFromFile(String mappingsPath) {
+        try {
+            translateWith(RuntimeMappings.load(java.nio.file.Paths.get(mappingsPath)));
         } catch (Throwable t) {
             AgentLogger.getInstance().error(
                 "Failed to apply mappings file '" + mappingsPath + "': " + t.getMessage(), t);
         }
     }
+
+    /** Shared hook-target translation + registry rebuild. */
+    private void translateWith(RuntimeMappings resolved) {
+        Map<String, List<MethodHook>> translated = new ConcurrentHashMap<>();
+        int rewrittenClasses = 0;
+        int rewrittenMethods = 0;
+        for (List<MethodHook> hooks : hooksByClass.values()) {
+            for (MethodHook hook : hooks) {
+                String runtimeClass = resolved.toRuntimeName(hook.className);
+                String runtimeMethod = resolved.toRuntimeMethodName(
+                    hook.className, hook.methodName, hook.descriptor);
+
+                if (runtimeClass.equals(hook.className)
+                    && runtimeMethod.equals(hook.methodName)) {
+                    translated.computeIfAbsent(hook.className,
+                        k -> new ArrayList<>()).add(hook);
+                    continue;
+                }
+                if (!runtimeClass.equals(hook.className)) rewrittenClasses++;
+                if (!runtimeMethod.equals(hook.methodName)) rewrittenMethods++;
+                MethodHook effective = new MethodHook(runtimeClass, runtimeMethod,
+                    hook.descriptor, hook.onEnter, hook.onExit,
+                    hook.catchExceptions, hook.description);
+                translated.computeIfAbsent(effective.className,
+                    k -> new ArrayList<>()).add(effective);
+            }
+        }
+        hooksByClass.clear();
+        hooksByClass.putAll(translated);
+        mappings = resolved;
+        AgentLogger.getInstance().info("Applied " + resolved.size()
+            + " runtime mappings — " + rewrittenClasses
+            + " class targets / " + rewrittenMethods + " method targets translated");
+    }
+
+    /** Mappings currently in effect, or null. Used by export translation. */
+    public RuntimeMappings getMappings() { return mappings; }
 
     /**
      * Resolve the "auto" profile against the running MC version.
