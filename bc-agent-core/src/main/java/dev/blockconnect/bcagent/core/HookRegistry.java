@@ -71,6 +71,54 @@ public final class HookRegistry {
             AgentLogger.getInstance().info("Hook registry active: " + hooksByClass.size()
                 + " classes, " + providers.size() + " providers");
         }
+
+        if (active && config.mappingsFile != null && !config.mappingsFile.isBlank()) {
+            applyMappings(config.mappingsFile);
+        }
+    }
+
+    /**
+     * Translate registered hook targets from Mojang (deobfuscated) names to
+     * the runtime names found in obfuscated legacy jars, using a ProGuard
+     * mapping file.
+     */
+    private void applyMappings(String mappingsPath) {
+        try {
+            RuntimeMappings mappings = RuntimeMappings.load(
+                java.nio.file.Paths.get(mappingsPath));
+            Map<String, List<MethodHook>> translated = new ConcurrentHashMap<>();
+            int rewrittenClasses = 0;
+            int rewrittenMethods = 0;
+            for (List<MethodHook> hooks : hooksByClass.values()) {
+                for (MethodHook hook : hooks) {
+                    String runtimeClass = mappings.toRuntimeName(hook.className);
+                    String runtimeMethod = mappings.toRuntimeMethodName(
+                        hook.className, hook.methodName, hook.descriptor);
+
+                    if (runtimeClass.equals(hook.className)
+                        && runtimeMethod.equals(hook.methodName)) {
+                        translated.computeIfAbsent(hook.className,
+                            k -> new ArrayList<>()).add(hook);
+                        continue;
+                    }
+                    if (!runtimeClass.equals(hook.className)) rewrittenClasses++;
+                    if (!runtimeMethod.equals(hook.methodName)) rewrittenMethods++;
+                    MethodHook effective = new MethodHook(runtimeClass, runtimeMethod,
+                        hook.descriptor, hook.onEnter, hook.onExit,
+                        hook.catchExceptions, hook.description);
+                    translated.computeIfAbsent(effective.className,
+                        k -> new ArrayList<>()).add(effective);
+                }
+            }
+            hooksByClass.clear();
+            hooksByClass.putAll(translated);
+            AgentLogger.getInstance().info("Applied " + mappings.size()
+                + " runtime mappings — " + rewrittenClasses
+                + " class targets / " + rewrittenMethods + " method targets translated");
+        } catch (Throwable t) {
+            AgentLogger.getInstance().error(
+                "Failed to apply mappings file '" + mappingsPath + "': " + t.getMessage(), t);
+        }
     }
 
     /**

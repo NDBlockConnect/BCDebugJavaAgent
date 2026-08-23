@@ -41,6 +41,13 @@ public class AgentConfig {
     /** Log level: TRACE, DEBUG, INFO, WARN, ERROR. */
     public String logLevel = "INFO";
 
+    /**
+     * Mirror INFO+ log records into {@code <outputDir>/bcdebug-live.log}.
+     * Independent of stdout/stderr, so headless launches with dead console
+     * pipes still produce inspectable agent state.
+     */
+    public boolean logFile = false;
+
     /** Whether to enable the HTTP control server (for runtime queries). */
     public boolean enableHttpServer = false;
 
@@ -50,6 +57,13 @@ public class AgentConfig {
     /** Hook profile: which set of MC-specific hooks to activate.
      *  Values: "26", "1.21", "1.20", "1.12", "auto". */
     public String hookProfile = "auto";
+
+    /**
+     * Path to a ProGuard mapping file (Mojang {@code client.txt}/{@code server.txt}).
+     * When set, hook targets authored against Mojang names are translated to
+     * the runtime names used by obfuscated legacy jars (1.20.x / 1.21.x).
+     */
+    public String mappingsFile = "";
 
     /** Verbose agent startup logging. */
     public boolean verbose = false;
@@ -88,9 +102,11 @@ public class AgentConfig {
             case "enablehooks"     -> enableHooks = Boolean.parseBoolean(val);
             case "exportonshutdown" -> exportOnShutdown = Boolean.parseBoolean(val);
             case "loglevel"        -> logLevel = val.toUpperCase();
+            case "logfile"         -> logFile = Boolean.parseBoolean(val);
             case "enablehttp"      -> enableHttpServer = Boolean.parseBoolean(val);
             case "httpport"        -> httpPort = parseInt(val, httpPort);
             case "hookprofile"     -> hookProfile = val;
+            case "mappingsfile"    -> mappingsFile = val;
             case "verbose"         -> verbose = Boolean.parseBoolean(val);
             default                -> { /* unknown key — ignore */ }
         }

@@ -2,6 +2,7 @@ package dev.blockconnect.bcagent.core;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.nio.file.Files;
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -31,14 +32,60 @@ public final class AgentLogger {
         return instance;
     }
 
+    private Level level = Level.INFO;
+    private String outputDir = "bcdebug-output";
+    private boolean fileMirror = false;
+
+    /** Live mirror writer; guarded by itself. Created lazily on first write. */
+    private volatile java.io.BufferedWriter liveMirror;
+
     public static void init(AgentConfig config) {
         AgentLogger logger = getInstance();
         logger.level = Level.fromString(config.logLevel);
         logger.outputDir = config.outputDir;
+        logger.fileMirror = config.logFile;
     }
 
-    private Level level = Level.INFO;
-    private String outputDir = "bcdebug-output";
+    /** Close the live mirror (called from the shutdown hook before export). */
+    public static void closeLiveMirror() {
+        AgentLogger logger = instance;
+        java.io.BufferedWriter w = logger.liveMirror;
+        if (w != null) {
+            logger.liveMirror = null;
+            try {
+                synchronized (w) { w.close(); }
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    private void mirrorToFile(String line) {
+        if (!fileMirror || line == null) return;
+        try {
+            java.io.BufferedWriter w = liveMirror;
+            if (w == null) {
+                synchronized (this) {
+                    if (liveMirror == null) {
+                        java.nio.file.Path dir = java.nio.file.Paths.get(outputDir);
+                        Files.createDirectories(dir);
+                        liveMirror = Files.newBufferedWriter(
+                            dir.resolve("bcdebug-live.log"),
+                            java.nio.charset.StandardCharsets.UTF_8);
+                    }
+                    w = liveMirror;
+                }
+            }
+            if (w == null) return;
+            synchronized (w) {
+                if (liveMirror == null) return; // closed concurrently
+                w.write(line);
+                w.newLine();
+                w.flush();
+            }
+        } catch (Throwable ignored) {
+            // Mirroring must never break logging or the game.
+        }
+    }
 
     private static final int RING_CAPACITY = 1 << 16;
 
@@ -74,8 +121,9 @@ public final class AgentLogger {
 
         recordCount.incrementAndGet();
 
+        String line = formatRecord(rec);
+        mirrorToFile(line);
         if (lvl.severity >= Level.INFO.severity) {
-            String line = formatRecord(rec);
             System.err.println(line);
         }
     }

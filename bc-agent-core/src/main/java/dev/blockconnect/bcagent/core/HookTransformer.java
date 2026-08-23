@@ -26,16 +26,11 @@ public class HookTransformer implements ClassFileTransformer {
                              byte[] classfileBuffer) {
         if (className == null) return null;
 
-        // Cheap prefix pre-filter BEFORE touching HookRegistry. Hook targets
-        // always live under net/minecraft/ or com/mojang/. Everything else
-        // (including this agent's own classes) must be skipped without
-        // resolving HookRegistry — otherwise transforming HookRegistry itself
-        // would re-enter its load and fail with a duplicate-definition
-        // LinkageError under plain -javaagent launches.
-        if (!className.startsWith("net/minecraft/")
-            && !className.startsWith("com/mojang/")) {
-            return null;
-        }
+        // Never transform the agent's own classes, and skip everything while
+        // the registry itself is still being defined (P0 fix from Alpha.3 —
+        // resolving HookRegistry mid-definition re-entered its load and blew
+        // up with a duplicate-definition LinkageError).
+        if (className.startsWith("dev/blockconnect/bcagent")) return null;
 
         HookRegistry registry;
         List<MethodHook> hooks;

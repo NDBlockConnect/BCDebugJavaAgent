@@ -40,10 +40,22 @@ Output: `build/libs/bcdebug-javaagent-v26.0-Alpha.1.jar`
 # so no -Xbootclasspath/a is required in any launch mode.
 java -javaagent:bcdebug-javaagent.jar=logLevel=DEBUG,hookProfile=auto -jar minecraft.jar
 
-java -javaagent:bcdebug-javaagent.jar=logLevel=DEBUG,hookProfile=1.21,enableHttp=true -jar server.jar nogui
+# Obfuscated legacy jar (1.20.x / 1.21.x stock server/client): point
+# mappingsFile at Mojang's published ProGuard txt so hook targets written in
+# Mojang names are translated to runtime names (classes AND methods).
+java -javaagent:bcdebug-javaagent.jar=logLevel=DEBUG,hookProfile=1.21,mappingsFile=server.txt,logFile=true -jar server.jar nogui
 
 # Standalone test
 java -javaagent:bcdebug-javaagent.jar=logLevel=DEBUG,classfilters=dev.blockconnect.bcagent.test -cp test-classes dev.blockconnect.bcagent.test.TestTarget
+```
+
+### MDL workflow
+
+MDL (v26.2.0+) can register the agent persistently per instance:
+
+```powershell
+mdl javaagent install <instance> bcdebug-javaagent.jar --params "hookProfile=auto,logFile=true"
+mdl javaagent list <instance>
 ```
 
 ### Control plane transports
@@ -55,12 +67,15 @@ raw-socket implementation serving the same endpoints.
 
 ## Known Limitations
 
-- **Boot-window coverage gap (pre-existing):** classes loaded by vanilla's
-  spawned worker/server threads during the middle of startup (e.g.
-  `ServerLevel`, world/entity packages) may miss transformation, while classes
-  loaded before that window and at runtime are instrumented normally.
-  Investigated in Alpha.4; root cause under investigation. Method/hook
-  coverage therefore focuses on bootstrap-phase and runtime-triggered loads.
+- **Legacy-version name obfuscation:** stock Mojang jars for 1.20.x/1.21.x ship
+  with obfuscated class and method names (`aqu.a` style); only entry points
+  keep real names. Provide `mappingsFile=<client.txt|server.txt>` so hook
+  targets written in Mojang names are translated to runtime names — classes
+  and methods, with JVM descriptors disambiguating overloads. MC 26.x ships
+  unobfuscated and needs no mappings.
+- Method statistics always report runtime (possibly obfuscated) class names;
+  extend `classFilters` with obfuscated prefixes if full game-code recording
+  is required on legacy jars.
 - `1.12` profile remains planned (requires legacy JDK 8 artifact).
 
 ### Configuration Keys
@@ -74,7 +89,8 @@ raw-socket implementation serving the same endpoints.
 | `logMethodEntry` | `true` | Log method entries |
 | `logMethodExit` | `false` | Log method exits |
 | `enableHooks` | `true` | Enable MC-specific hook injection |
-| `hookProfile` | `auto` | Hook set: `26`, `1.21`, `1.20`, `1.12`, `auto` || `exportOnShutdown` | `true` | Export JSONL logs on JVM exit |
+| `hookProfile` | `auto` | Hook set: `26`, `1.21`, `1.20`, `1.12`, `auto` |
+| `mappingsFile` | — | ProGuard mapping txt (Mojang `client.txt`/`server.txt`); translates hook targets to runtime names for obfuscated legacy jars || `exportOnShutdown` | `true` | Export JSONL logs on JVM exit |
 | `enableHttp` | `false` | Enable HTTP control server |
 | `httpPort` | `25595` | HTTP server port |
 
