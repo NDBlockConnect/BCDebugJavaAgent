@@ -40,4 +40,18 @@ class AgentConfigTest {
         assertFalse(config.matchesClass("net.minecraft.client.main.Main"));
         assertTrue(config.matchesClass("net.minecraft.client.Minecraft"));
     }
+
+    @Test
+    void testDynamicFiltersAndExcludePriority() {
+        AgentConfig config = AgentConfig.parse(null);
+        config.dynamicFilters = new String[]{"aqu", "ezb"};
+        assertTrue(config.matchesClass("aqu$a"), "dynamic prefix matches inner classes");
+        assertTrue(config.matchesClass("ezb"));
+        assertFalse(config.matchesClass("unrelated/Klass"));
+
+        // User excludeFilters keep priority over dynamic filters
+        config.excludeFilters = new String[]{"aqu"};
+        assertFalse(config.matchesClass("aqu$a"), "exclude must win over dynamic");
+        assertTrue(config.matchesClass("ezb"));
+    }
 }

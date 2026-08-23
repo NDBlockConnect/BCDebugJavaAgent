@@ -17,6 +17,13 @@ public class AgentConfig {
     /** Comma-separated class name prefixes to exclude. */
     public String[] excludeFilters = {"net.minecraft.client.main.Main"};
 
+    /**
+     * Runtime-populated extra filters (hook target class names after mapping
+     * translation). Managed by {@link HookRegistry}; user excludeFilters keep
+     * priority over these.
+     */
+    public volatile String[] dynamicFilters = new String[0];
+
     /** Maximum method entry log records per class (0 = unlimited). */
     public int maxRecordsPerClass = 5000;
 
@@ -137,6 +144,9 @@ public class AgentConfig {
         }
         for (String inc : classFilters) {
             if (className.startsWith(inc)) return true;
+        }
+        for (String dyn : dynamicFilters) {
+            if (className.startsWith(dyn)) return true;
         }
         return false;
     }

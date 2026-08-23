@@ -75,8 +75,9 @@ raw-socket implementation serving the same endpoints.
   unobfuscated and needs no mappings.
 - Method statistics report deobfuscated class and method names when mappings
   are active; unresolved methods keep their runtime names, and JVM descriptors
-  always contain runtime references. Extend `classFilters` with obfuscated
-  prefixes if full game-code recording is required on legacy jars.
+  always contain runtime references. Hook target classes are auto-added as
+  dynamic statistics filters on translation; broader game-code coverage on
+  legacy jars still needs manual `classfilters` prefixes.
 - `1.12` profile remains planned (requires legacy JDK 8 artifact).
 
 ### Configuration Keys

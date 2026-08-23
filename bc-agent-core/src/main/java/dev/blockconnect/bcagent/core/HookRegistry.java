@@ -36,6 +36,9 @@ public final class HookRegistry {
     /** Mappings currently in effect (set by translateWith), or null. */
     private volatile RuntimeMappings mappings;
 
+    /** Config captured at init — needed by reload to push dynamic filters. */
+    private volatile AgentConfig boundConfig;
+
     public static HookRegistry getInstance() {
         return INSTANCE;
     }
@@ -51,6 +54,7 @@ public final class HookRegistry {
             AgentLogger.getInstance().info("Hooks disabled by config");
             return;
         }
+        this.boundConfig = config;
 
         String profile = resolveProfile(config.hookProfile);
         AgentLogger.getInstance().info("Loading hook providers for profile: " + profile);
@@ -206,6 +210,14 @@ public final class HookRegistry {
         hooksByClass.clear();
         hooksByClass.putAll(translated);
         mappings = resolved;
+
+        // Auto-extend statistics coverage: every live hook target class name
+        // becomes a dynamic filter so translated (possibly obfuscated)
+        // targets always appear in method stats without manual classfilters.
+        if (boundConfig != null) {
+            boundConfig.dynamicFilters = translated.keySet().toArray(new String[0]);
+        }
+
         AgentLogger.getInstance().info("Applied " + resolved.size()
             + " runtime mappings — " + rewrittenClasses
             + " class targets / " + rewrittenMethods + " method targets translated");
