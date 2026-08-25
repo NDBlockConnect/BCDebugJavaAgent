@@ -2,6 +2,21 @@
 
 Internally | BlockConnect uses a Minecraft‑debug‑level JavaAgent, which is suitable for bytecode‑level analysis and log retention for Minecraft in environments where AprismJDK is not used or unavailable.
 
+**Status: v26.0 GA**
+
+| Version | Theme |
+|---|---|
+| Alpha 1–2 | Core agent: ASM instrumentation, hook registry, exports |
+| Alpha 3 | Multi-version profiles (1.20/1.21), plain `-javaagent` fix |
+| Alpha 4 | Self-bootstrapping shim, dual-mode control plane |
+| Alpha 5 | ProGuard mappings — class+method translation |
+| Alpha 6 | Automatic mapping discovery (piston-meta + cache) |
+| Alpha 7 | Readable exports (reverse translation) |
+| Alpha 8 | Runtime operations (hot hook reload via retransform) |
+| Alpha 9 | Client-side diagnosis hooks (setScreen / pauseGame) |
+| Alpha 10 | Dynamic statistics filters (**LTS**) |
+| **v26.0** | **GA — production release of the full line** |
+
 ## Overview
 
 BCDebugJavaAgent is a JVM-level Java Agent for Minecraft Java Edition (1.12.2–26.2) that performs:
