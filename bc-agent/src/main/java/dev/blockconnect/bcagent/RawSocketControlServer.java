@@ -73,14 +73,14 @@ public final class RawSocketControlServer implements ControlPlane {
     }
 
     private void handle(Socket socket) {
-        try (socket) {
-            socket.setSoTimeout(10_000);
-            String requestLine = readLine(socket.getInputStream());
-            if (requestLine == null || requestLine.isBlank()) return;
+        try (Socket s = socket) {
+            s.setSoTimeout(10_000);
+            String requestLine = readLine(s.getInputStream());
+            if (requestLine == null || requestLine.trim().isEmpty()) return;
 
             // Drain headers up to the blank line (bodies are not expected).
             String line;
-            while ((line = readLine(socket.getInputStream())) != null && !line.isEmpty()) {
+            while ((line = readLine(s.getInputStream())) != null && !line.isEmpty()) {
                 // skip
             }
 
@@ -98,48 +98,49 @@ public final class RawSocketControlServer implements ControlPlane {
                 path = path.substring(0, q);
             }
 
-            switch (path) {
-                case "/status" -> respond(socket, 200, GSON.toJson(ControlPayloads.status()));
-                case "/methods" -> respond(socket, 200, GSON.toJson(ControlPayloads.methods()));
-                case "/logs" -> respond(socket, 200, GSON.toJson(ControlPayloads.logs(100)));
-                case "/classes" -> respond(socket, 200, GSON.toJson(
+            if (path.equals("/status")) {
+                respond(s, 200, GSON.toJson(ControlPayloads.status()));
+            } else if (path.equals("/methods")) {
+                respond(s, 200, GSON.toJson(ControlPayloads.methods()));
+            } else if (path.equals("/logs")) {
+                respond(s, 200, GSON.toJson(ControlPayloads.logs(100)));
+            } else if (path.equals("/classes")) {
+                respond(s, 200, GSON.toJson(
                     AgentBootstrap.findLoadedClasses(
                         query.getOrDefault("contains", ""),
                         parseInt(query.getOrDefault("limit", "50")))));
-                case "/log-level" -> {
-                    if (!"POST".equals(method)) {
-                        respond(socket, 405, "{\"error\":\"Method not allowed\"}");
+            } else if (path.equals("/log-level")) {
+                if (!"POST".equals(method)) {
+                    respond(s, 405, "{\"error\":\"Method not allowed\"}");
+                } else {
+                    String level = query.get("level");
+                    if (level == null || level.trim().isEmpty()) {
+                        respond(s, 400, "{\"error\":\"Missing level\"}");
                     } else {
-                        String level = query.get("level");
-                        if (level == null || level.isBlank()) {
-                            respond(socket, 400, "{\"error\":\"Missing level\"}");
-                        } else {
-                            respond(socket, 200, GSON.toJson(
-                                ControlPayloads.logLevelChanged(
-                                    AgentBootstrap.setLogLevel(level))));
-                        }
+                        respond(s, 200, GSON.toJson(
+                            ControlPayloads.logLevelChanged(
+                                AgentBootstrap.setLogLevel(level))));
                     }
                 }
-                case "/hooks/reload" -> {
-                    if (!"POST".equals(method)) {
-                        respond(socket, 405, "{\"error\":\"Method not allowed\"}");
-                    } else {
-                        respond(socket, 200, GSON.toJson(AgentBootstrap.reloadHooks()));
+            } else if (path.equals("/hooks/reload")) {
+                if (!"POST".equals(method)) {
+                    respond(s, 405, "{\"error\":\"Method not allowed\"}");
+                } else {
+                    respond(s, 200, GSON.toJson(AgentBootstrap.reloadHooks()));
+                }
+            } else if (path.equals("/export")) {
+                if (!"POST".equals(method)) {
+                    respond(s, 405, "{\"error\":\"Method not allowed\"}");
+                } else {
+                    try {
+                        respond(s, 200, GSON.toJson(ControlPayloads.export(config)));
+                    } catch (Exception e) {
+                        respond(s, 500,
+                            "{\"error\":" + GSON.toJson(String.valueOf(e.getMessage())) + "}");
                     }
                 }
-                case "/export" -> {
-                    if (!"POST".equals(method)) {
-                        respond(socket, 405, "{\"error\":\"Method not allowed\"}");
-                    } else {
-                        try {
-                            respond(socket, 200, GSON.toJson(ControlPayloads.export(config)));
-                        } catch (Exception e) {
-                            respond(socket, 500,
-                                "{\"error\":" + GSON.toJson(String.valueOf(e.getMessage())) + "}");
-                        }
-                    }
-                }
-                default -> respond(socket, 404, "{\"error\":\"Not found\"}");
+            } else {
+                respond(s, 404, "{\"error\":\"Not found\"}");
             }
         } catch (Throwable ignored) {
             // Control plane must never take the game down over a bad request.
@@ -175,13 +176,13 @@ public final class RawSocketControlServer implements ControlPlane {
     }
 
     private static String reason(int code) {
-        return switch (code) {
-            case 200 -> "OK";
-            case 400 -> "Bad Request";
-            case 404 -> "Not Found";
-            case 405 -> "Method Not Allowed";
-            default -> "Internal Server Error";
-        };
+        switch (code) {
+            case 200: return "OK";
+            case 400: return "Bad Request";
+            case 404: return "Not Found";
+            case 405: return "Method Not Allowed";
+            default: return "Internal Server Error";
+        }
     }
 
     private static int parseInt(String s) {

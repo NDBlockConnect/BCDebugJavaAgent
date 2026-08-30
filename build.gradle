@@ -34,9 +34,15 @@ subprojects {
 
     compileJava {
         options.encoding = 'UTF-8'
-        // Bytecode target 17: agent must load on JDK 17 game JVMs (MC 1.20.x)
-        // while remaining fully compatible with JDK 21 (MC 26.x / 1.21.x).
-        options.release = 17
+        // Bytecode target 8: ONE artifact serves JDK 8+ game JVMs (1.12.x
+        // through 26.x). Tests compile against the modern toolchain instead.
+        options.release = 8
+    }
+
+    tasks.withType(JavaCompile).configureEach {
+        if (name.contains('Test')) {
+            options.release = 17
+        }
     }
 
     jar {

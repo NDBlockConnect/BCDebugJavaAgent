@@ -103,7 +103,7 @@ public final class MappingAutoDiscovery {
     static String resolveMappingsUrl(String mcVersion, boolean server) throws IOException {
         Path manifest = downloadToTemp(VERSION_MANIFEST);
         try {
-            String json = Files.readString(manifest, StandardCharsets.UTF_8);
+            String json = new String(Files.readAllBytes(manifest), StandardCharsets.UTF_8);
             // Minimal extraction without pulling in Gson into bc-agent-core:
             // locate "id":"<mcVersion>" then the following versions[].url.
             String versionsUrl = findVersionsEntryUrl(json, mcVersion);
@@ -111,7 +111,7 @@ public final class MappingAutoDiscovery {
 
             Path versionJson = downloadToTemp(versionsUrl);
             try {
-                String vjson = Files.readString(versionJson, StandardCharsets.UTF_8);
+                String vjson = new String(Files.readAllBytes(versionJson), StandardCharsets.UTF_8);
                 return extractDownloadsUrl(vjson, server ? "server_mappings" : "client_mappings");
             } finally {
                 Files.deleteIfExists(versionJson);

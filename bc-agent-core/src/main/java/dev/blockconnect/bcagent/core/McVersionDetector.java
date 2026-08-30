@@ -5,6 +5,7 @@ import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.charset.StandardCharsets;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -39,10 +40,10 @@ public final class McVersionDetector {
      */
     public static String detect(Path root) {
         String v = System.getProperty("bcdebug.mcversion");
-        if (v != null && !v.isBlank()) return v.trim();
+        if (v != null && !v.trim().isEmpty()) return v.trim();
 
         v = System.getProperty("minecraft.version");
-        if (v != null && !v.isBlank()) return v.trim();
+        if (v != null && !v.trim().isEmpty()) return v.trim();
 
         try {
             v = parseId(root.resolve("version.json"));
@@ -74,7 +75,7 @@ public final class McVersionDetector {
      * ("26", "1.21", "1.20"), or null when unmapped.
      */
     public static String toProfile(String mcVersion) {
-        if (mcVersion == null || mcVersion.isBlank()) return null;
+        if (mcVersion == null || mcVersion.trim().isEmpty()) return null;
         String v = mcVersion.trim();
         if (v.startsWith("26.")) return "26";
         if (v.startsWith("1.21")) return "1.21";
@@ -85,7 +86,7 @@ public final class McVersionDetector {
     private static String parseId(Path json) {
         if (!Files.isRegularFile(json)) return null;
         try {
-            String content = Files.readString(json);
+            String content = new String(Files.readAllBytes(json), StandardCharsets.UTF_8);
             Matcher m = ID_FIELD.matcher(content);
             if (m.find()) {
                 String id = m.group(1).trim();

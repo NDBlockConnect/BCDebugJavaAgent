@@ -43,9 +43,21 @@ public final class RuntimeMappings {
      */
     private final Map<String, Map<String, String>> methodMap = new HashMap<>();
 
-    private static final Map<String, String> PRIMITIVES = Map.of(
-        "void", "V", "boolean", "Z", "byte", "B", "short", "S",
-        "char", "C", "int", "I", "long", "J", "float", "F", "double", "D");
+    private static final Map<String, String> PRIMITIVES = buildPrimitives();
+
+    private static Map<String, String> buildPrimitives() {
+        Map<String, String> m = new HashMap<>();
+        m.put("void", "V");
+        m.put("boolean", "Z");
+        m.put("byte", "B");
+        m.put("short", "S");
+        m.put("char", "C");
+        m.put("int", "I");
+        m.put("long", "J");
+        m.put("float", "F");
+        m.put("double", "D");
+        return m;
+    }
 
     private RuntimeMappings() {}
 
@@ -55,7 +67,7 @@ public final class RuntimeMappings {
         String currentClass = null;
 
         for (String raw : Files.readAllLines(file, StandardCharsets.UTF_8)) {
-            if (raw.isBlank() || raw.startsWith("#")) continue;
+            if (raw.trim().isEmpty() || raw.startsWith("#")) continue;
 
             if (!Character.isWhitespace(raw.charAt(0))) {
                 int arrow = raw.indexOf("->");
@@ -119,7 +131,9 @@ public final class RuntimeMappings {
             // an unresolvable shorthand; keep it distinguishable either way.
             base = "L" + t.replace('.', '/') + ";";
         }
-        return "[".repeat(arrays) + base;
+        StringBuilder prefix = new StringBuilder();
+        for (int i = 0; i < arrays; i++) prefix.append('[');
+        return prefix + base;
     }
 
     /** Split on commas not nested inside angle brackets. */
@@ -150,7 +164,7 @@ public final class RuntimeMappings {
      * when no mapping exists.
      */
     public String toRuntimeName(String deobfClassName) {
-        if (deobfClassName == null || deobfClassName.isBlank()) return deobfClassName;
+        if (deobfClassName == null || deobfClassName.trim().isEmpty()) return deobfClassName;
         String key = deobfClassName.replace('.', '/');
         return classMap.getOrDefault(key, key);
     }
@@ -181,7 +195,7 @@ public final class RuntimeMappings {
      * normalized to slashes when no reverse mapping exists.
      */
     public String toDeobfName(String runtimeClassName) {
-        if (runtimeClassName == null || runtimeClassName.isBlank()) {
+        if (runtimeClassName == null || runtimeClassName.trim().isEmpty()) {
             return runtimeClassName;
         }
         Map<String, String> reverse = this.reverseClassMap;

@@ -28,26 +28,34 @@ public class ControlServer implements ControlPlane {
         this.config = config;
         this.server = HttpServer.create(new InetSocketAddress("127.0.0.1", port), 0);
 
-        server.createContext("/status", exchange -> safe(exchange, () ->
-            sendJson(exchange, 200, ControlPayloads.status())));
-        server.createContext("/methods", exchange -> safe(exchange, () ->
-            sendJson(exchange, 200, ControlPayloads.methods())));
-        server.createContext("/logs", exchange -> safe(exchange, () ->
-            sendJson(exchange, 200, ControlPayloads.logs(100))));
+        // F-2 (v26.0 robustness assessment): read endpoints enforce GET,
+        // write endpoints enforce POST — mirrors the raw-socket frontend.
+        server.createContext("/status", exchange -> safe(exchange, () -> {
+            if (!requireGet(exchange)) return;
+            sendJson(exchange, 200, ControlPayloads.status());
+        }));
+        server.createContext("/methods", exchange -> safe(exchange, () -> {
+            if (!requireGet(exchange)) return;
+            sendJson(exchange, 200, ControlPayloads.methods());
+        }));
+        server.createContext("/logs", exchange -> safe(exchange, () -> {
+            if (!requireGet(exchange)) return;
+            sendJson(exchange, 200, ControlPayloads.logs(100));
+        }));
         server.createContext("/classes", exchange -> safe(exchange, () -> {
+            if (!requireGet(exchange)) return;
             java.util.Map<String, String> q = query(exchange.getRequestURI().getRawQuery());
             sendJson(exchange, 200, AgentBootstrap.findLoadedClasses(
                 q.getOrDefault("contains", ""),
                 parseInt(q.getOrDefault("limit", "50"), 50)));
-        }));
-        server.createContext("/log-level", exchange -> safe(exchange, () -> {
+        }));        server.createContext("/log-level", exchange -> safe(exchange, () -> {
             if (!"POST".equals(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed");
                 return;
             }
             java.util.Map<String, String> q = query(exchange.getRequestURI().getRawQuery());
             String level = q.get("level");
-            if (level == null || level.isBlank()) {
+            if (level == null || level.trim().isEmpty()) {
                 sendText(exchange, 400, "Missing ?level=");
                 return;
             }
@@ -74,7 +82,7 @@ public class ControlServer implements ControlPlane {
 
     private static java.util.Map<String, String> query(String rawQuery) {
         java.util.Map<String, String> map = new java.util.LinkedHashMap<>();
-        if (rawQuery == null || rawQuery.isBlank()) return map;
+        if (rawQuery == null || rawQuery.trim().isEmpty()) return map;
         for (String pair : rawQuery.split("&")) {
             int eq = pair.indexOf('=');
             if (eq <= 0) continue;
@@ -85,7 +93,11 @@ public class ControlServer implements ControlPlane {
     }
 
     private static String urlDecode(String s) {
-        return java.net.URLDecoder.decode(s, java.nio.charset.StandardCharsets.UTF_8);
+        try {
+            return java.net.URLDecoder.decode(s, "UTF-8");
+        } catch (java.io.UnsupportedEncodingException e) {
+            return s; // UTF-8 is always supported; unreachable
+        }
     }
 
     private static int parseInt(String s, int def) {
@@ -100,6 +112,16 @@ public class ControlServer implements ControlPlane {
 
     private interface EndpointAction {
         void run() throws IOException;
+    }
+
+    /** F-2: send 405 for non-GET and signal the handler to stop via the
+     *  returned flag (no exception-based control flow). */
+    private static boolean requireGet(HttpExchange ex) throws IOException {
+        if (!"GET".equals(ex.getRequestMethod())) {
+            sendText(ex, 405, "Method not allowed");
+            return false;
+        }
+        return true;
     }
 
     private static void safe(HttpExchange ex, EndpointAction action) {

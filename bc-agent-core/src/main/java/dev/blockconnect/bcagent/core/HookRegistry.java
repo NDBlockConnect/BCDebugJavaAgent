@@ -86,7 +86,7 @@ public final class HookRegistry {
                 + " classes, " + providers.size() + " providers");
         }
 
-        if (active && !config.mappingsFile.isBlank()) {
+        if (active && !config.mappingsFile.trim().isEmpty()) {
             applyMappingsFromFile(config.mappingsFile);
         } else if (active && config.mappingsAuto) {
             applyMappingsAuto(config);
@@ -104,7 +104,7 @@ public final class HookRegistry {
                                                     AgentConfig config) {
         Map<String, Object> summary = new java.util.LinkedHashMap<>();
         int before = totalHooks();
-        if (!config.mappingsFile.isBlank()) {
+        if (!config.mappingsFile.trim().isEmpty()) {
             applyMappingsFromFile(config.mappingsFile);
         } else {
             // An explicit reload IS the user intent: resolve mappings even
@@ -178,6 +178,14 @@ public final class HookRegistry {
         } catch (Throwable t) {
             AgentLogger.getInstance().error(
                 "Failed to apply mappings file '" + mappingsPath + "': " + t.getMessage(), t);
+            // F-1 (v26.0 robustness assessment): fall back to auto discovery
+            // when the explicit file fails AND the user already consented to
+            // network access via mappingsAuto.
+            if (boundConfig != null && boundConfig.mappingsAuto) {
+                AgentLogger.getInstance().warn(
+                    "mappingsFile failed — falling back to mappingsAuto");
+                applyMappingsAuto(boundConfig);
+            }
         }
     }
 

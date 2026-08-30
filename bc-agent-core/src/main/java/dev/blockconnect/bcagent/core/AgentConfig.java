@@ -1,7 +1,7 @@
 package dev.blockconnect.bcagent.core;
 
 /**
- * Agent configuration — parsed from -javaagent args or bcdebug.properties.
+ * Agent configuration - parsed from -javaagent args or bcdebug.properties.
  * <p>
  * All fields have safe defaults so the agent can run with zero configuration.
  */
@@ -90,7 +90,7 @@ public class AgentConfig {
     /** Verbose agent startup logging. */
     public boolean verbose = false;
 
-    // ── Parsing ──────────────────────────────────────────────
+    // 鈹€鈹€ Parsing 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
     /**
      * Parse agent arguments from the -javaagent string.
@@ -98,7 +98,7 @@ public class AgentConfig {
      */
     public static AgentConfig parse(String args) {
         AgentConfig config = new AgentConfig();
-        if (args == null || args.isBlank()) return config;
+        if (args == null || args.trim().isEmpty()) return config;
 
         for (String pair : args.split(",")) {
             int eq = pair.indexOf('=');
@@ -112,28 +112,47 @@ public class AgentConfig {
 
     /** Set a config field by key name (case-insensitive). */
     public void set(String key, String val) {
-        switch (key.toLowerCase()) {
-            case "outputdir"       -> outputDir = val;
-            case "classfilters"    -> classFilters = val.split(";");
-            case "excludefilters"  -> excludeFilters = val.split(";");
-            case "maxrecords"      -> maxRecordsPerClass = parseInt(val, maxRecordsPerClass);
-            case "logmethodentry"   -> logMethodEntry = Boolean.parseBoolean(val);
-            case "logmethodexit"    -> logMethodExit = Boolean.parseBoolean(val);
-            case "logfieldaccess"  -> logFieldAccess = Boolean.parseBoolean(val);
-            case "logclassload"    -> logClassLoad = Boolean.parseBoolean(val);
-            case "enablehooks"     -> enableHooks = Boolean.parseBoolean(val);
-            case "exportonshutdown" -> exportOnShutdown = Boolean.parseBoolean(val);
-            case "exportintervalsec" -> exportIntervalSec = parseInt(val, exportIntervalSec);
-            case "loglevel"        -> logLevel = val.toUpperCase();
-            case "logfile"         -> logFile = Boolean.parseBoolean(val);
-            case "enablehttp"      -> enableHttpServer = Boolean.parseBoolean(val);
-            case "httpport"        -> httpPort = parseInt(val, httpPort);
-            case "hookprofile"     -> hookProfile = val;
-            case "mappingsfile"    -> mappingsFile = val;
-            case "mappingsauto"    -> mappingsAuto = Boolean.parseBoolean(val);
-            case "verbose"         -> verbose = Boolean.parseBoolean(val);
-            default                -> { /* unknown key — ignore */ }
+        String k = key.toLowerCase();
+        if (k.equals("outputdir")) {
+            outputDir = val;
+        } else if (k.equals("classfilters")) {
+            classFilters = val.split(";");
+        } else if (k.equals("excludefilters")) {
+            excludeFilters = val.split(";");
+        } else if (k.equals("maxrecords")) {
+            maxRecordsPerClass = parseInt(val, maxRecordsPerClass);
+        } else if (k.equals("logmethodentry")) {
+            logMethodEntry = Boolean.parseBoolean(val);
+        } else if (k.equals("logmethodexit")) {
+            logMethodExit = Boolean.parseBoolean(val);
+        } else if (k.equals("logfieldaccess")) {
+            logFieldAccess = Boolean.parseBoolean(val);
+        } else if (k.equals("logclassload")) {
+            logClassLoad = Boolean.parseBoolean(val);
+        } else if (k.equals("enablehooks")) {
+            enableHooks = Boolean.parseBoolean(val);
+        } else if (k.equals("exportonshutdown")) {
+            exportOnShutdown = Boolean.parseBoolean(val);
+        } else if (k.equals("exportintervalsec")) {
+            exportIntervalSec = parseInt(val, exportIntervalSec);
+        } else if (k.equals("loglevel")) {
+            logLevel = val.toUpperCase();
+        } else if (k.equals("logfile")) {
+            logFile = Boolean.parseBoolean(val);
+        } else if (k.equals("enablehttp")) {
+            enableHttpServer = Boolean.parseBoolean(val);
+        } else if (k.equals("httpport")) {
+            httpPort = parseInt(val, httpPort);
+        } else if (k.equals("hookprofile")) {
+            hookProfile = val;
+        } else if (k.equals("mappingsfile")) {
+            mappingsFile = val;
+        } else if (k.equals("mappingsauto")) {
+            mappingsAuto = Boolean.parseBoolean(val);
+        } else if (k.equals("verbose")) {
+            verbose = Boolean.parseBoolean(val);
         }
+        // unknown keys are ignored
     }
 
     /** Check if a class name matches the include filters. */
