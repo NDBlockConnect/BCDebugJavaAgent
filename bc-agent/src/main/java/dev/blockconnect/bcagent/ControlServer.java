@@ -28,32 +28,48 @@ public class ControlServer implements ControlPlane {
         this.config = config;
         this.server = HttpServer.create(new InetSocketAddress("127.0.0.1", port), 0);
 
+        // Token guard runs first on every endpoint (no-op when unset).
+        java.util.function.BiFunction<HttpExchange, java.util.Map<String, String>, Boolean> auth =
+            (exchange, q) -> TokenGuard.authorized(config,
+                exchange.getRequestHeaders().getFirst(TokenGuard.HEADER) != null
+                    ? exchange.getRequestHeaders().getFirst(TokenGuard.HEADER)
+                    : q.get(TokenGuard.QUERY_PARAM));
+
         // F-2 (v26.0 robustness assessment): read endpoints enforce GET,
         // write endpoints enforce POST — mirrors the raw-socket frontend.
         server.createContext("/status", exchange -> safe(exchange, () -> {
+            java.util.Map<String, String> q = query(exchange.getRequestURI().getRawQuery());
+            if (!auth.apply(exchange, q)) { send401(exchange); return; }
             if (!requireGet(exchange)) return;
             sendJson(exchange, 200, ControlPayloads.status());
         }));
         server.createContext("/methods", exchange -> safe(exchange, () -> {
+            java.util.Map<String, String> q = query(exchange.getRequestURI().getRawQuery());
+            if (!auth.apply(exchange, q)) { send401(exchange); return; }
             if (!requireGet(exchange)) return;
             sendJson(exchange, 200, ControlPayloads.methods());
         }));
         server.createContext("/logs", exchange -> safe(exchange, () -> {
+            java.util.Map<String, String> q = query(exchange.getRequestURI().getRawQuery());
+            if (!auth.apply(exchange, q)) { send401(exchange); return; }
             if (!requireGet(exchange)) return;
             sendJson(exchange, 200, ControlPayloads.logs(100));
         }));
         server.createContext("/classes", exchange -> safe(exchange, () -> {
-            if (!requireGet(exchange)) return;
             java.util.Map<String, String> q = query(exchange.getRequestURI().getRawQuery());
+            if (!auth.apply(exchange, q)) { send401(exchange); return; }
+            if (!requireGet(exchange)) return;
             sendJson(exchange, 200, AgentBootstrap.findLoadedClasses(
                 q.getOrDefault("contains", ""),
                 parseInt(q.getOrDefault("limit", "50"), 50)));
-        }));        server.createContext("/log-level", exchange -> safe(exchange, () -> {
+        }));
+        server.createContext("/log-level", exchange -> safe(exchange, () -> {
+            java.util.Map<String, String> q = query(exchange.getRequestURI().getRawQuery());
+            if (!auth.apply(exchange, q)) { send401(exchange); return; }
             if (!"POST".equals(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed");
                 return;
             }
-            java.util.Map<String, String> q = query(exchange.getRequestURI().getRawQuery());
             String level = q.get("level");
             if (level == null || level.trim().isEmpty()) {
                 sendText(exchange, 400, "Missing ?level=");
@@ -63,6 +79,8 @@ public class ControlServer implements ControlPlane {
                 ControlPayloads.logLevelChanged(AgentBootstrap.setLogLevel(level)));
         }));
         server.createContext("/hooks/reload", exchange -> safe(exchange, () -> {
+            java.util.Map<String, String> q = query(exchange.getRequestURI().getRawQuery());
+            if (!auth.apply(exchange, q)) { send401(exchange); return; }
             if (!"POST".equals(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed");
                 return;
@@ -70,6 +88,8 @@ public class ControlServer implements ControlPlane {
             sendJson(exchange, 200, AgentBootstrap.reloadHooks());
         }));
         server.createContext("/export", exchange -> safe(exchange, () -> {
+            java.util.Map<String, String> q = query(exchange.getRequestURI().getRawQuery());
+            if (!auth.apply(exchange, q)) { send401(exchange); return; }
             if (!"POST".equals(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed");
                 return;
@@ -122,6 +142,10 @@ public class ControlServer implements ControlPlane {
             return false;
         }
         return true;
+    }
+
+    private static void send401(HttpExchange ex) throws IOException {
+        sendText(ex, 401, "Unauthorized");
     }
 
     private static void safe(HttpExchange ex, EndpointAction action) {

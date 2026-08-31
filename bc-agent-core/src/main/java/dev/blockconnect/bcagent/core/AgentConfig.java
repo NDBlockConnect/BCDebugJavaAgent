@@ -69,6 +69,13 @@ public class AgentConfig {
     /** HTTP server port (if enabled). */
     public int httpPort = 25595;
 
+    /**
+     * When set, every control-plane endpoint requires this token (header
+     * {@code X-BCDebug-Token} or query {@code token}). Empty = open on
+     * loopback only.
+     */
+    public String httpToken = "";
+
     /** Hook profile: which set of MC-specific hooks to activate.
      *  Values: "26", "1.21", "1.20", "1.12", "auto". */
     public String hookProfile = "auto";
@@ -143,6 +150,8 @@ public class AgentConfig {
             enableHttpServer = Boolean.parseBoolean(val);
         } else if (k.equals("httpport")) {
             httpPort = parseInt(val, httpPort);
+        } else if (k.equals("httptoken")) {
+            httpToken = val;
         } else if (k.equals("hookprofile")) {
             hookProfile = val;
         } else if (k.equals("mappingsfile")) {

@@ -78,10 +78,15 @@ public final class RawSocketControlServer implements ControlPlane {
             String requestLine = readLine(s.getInputStream());
             if (requestLine == null || requestLine.trim().isEmpty()) return;
 
-            // Drain headers up to the blank line (bodies are not expected).
+            // Capture headers (token lives here when configured).
+            java.util.Map<String, String> headers = new java.util.LinkedHashMap<>();
             String line;
             while ((line = readLine(s.getInputStream())) != null && !line.isEmpty()) {
-                // skip
+                int colon = line.indexOf(':');
+                if (colon > 0) {
+                    headers.put(line.substring(0, colon).trim().toLowerCase(),
+                        line.substring(colon + 1).trim());
+                }
             }
 
             String[] parts = requestLine.trim().split("\\s+");
@@ -96,6 +101,15 @@ public final class RawSocketControlServer implements ControlPlane {
                     query.put(pair.substring(0, eq), pair.substring(eq + 1));
                 }
                 path = path.substring(0, q);
+            }
+
+            // Token guard first on every endpoint (no-op when unset).
+            String presented = headers.get(TokenGuard.HEADER.toLowerCase()) != null
+                ? headers.get(TokenGuard.HEADER.toLowerCase())
+                : query.get(TokenGuard.QUERY_PARAM);
+            if (!TokenGuard.authorized(config, presented)) {
+                respond(s, 401, "{\"error\":\"Unauthorized\"}");
+                return;
             }
 
             if (path.equals("/status")) {
