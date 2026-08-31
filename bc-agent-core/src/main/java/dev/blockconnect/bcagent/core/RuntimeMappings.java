@@ -216,6 +216,41 @@ public final class RuntimeMappings {
     }
 
     /**
+     * Reverse-translate every {@code L...;} reference inside a JVM method
+     * descriptor from runtime names to Mojang names, for fully readable
+     * exports. Primitives, arrays and unmapped classes pass through.
+     */
+    public String toDeobfDescriptor(String runtimeDescriptor) {
+        if (runtimeDescriptor == null || runtimeDescriptor.isEmpty()) {
+            return runtimeDescriptor;
+        }
+        if (reverseClassMap == null) {
+            // Force lazy reverse-map construction through the accessor path.
+            toDeobfName("probe/none");
+        }
+        Map<String, String> reverse = reverseClassMap;
+        if (reverse == null || reverse.isEmpty()) return runtimeDescriptor;
+
+        StringBuilder out = new StringBuilder(runtimeDescriptor.length() + 32);
+        int i = 0;
+        int len = runtimeDescriptor.length();
+        while (i < len) {
+            char c = runtimeDescriptor.charAt(i);
+            if (c == 'L') {
+                int end = runtimeDescriptor.indexOf(';', i);
+                if (end < 0) { out.append(runtimeDescriptor.substring(i)); break; }
+                String cls = runtimeDescriptor.substring(i + 1, end);
+                out.append('L').append(toDeobfName(cls)).append(';');
+                i = end + 1;
+            } else {
+                out.append(c);
+                i++;
+            }
+        }
+        return out.toString();
+    }
+
+    /**
      * Reverse method lookup for display/export: translate a runtime method
      * name back to its Mojang name using the runtime class and the JVM
      * descriptor. Returns the input when no mapping exists.

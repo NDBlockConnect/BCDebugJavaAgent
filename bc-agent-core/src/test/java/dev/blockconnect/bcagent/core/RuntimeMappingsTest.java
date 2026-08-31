@@ -48,6 +48,23 @@ class RuntimeMappingsTest {
     }
 
     @Test
+    void reverseDescriptorTranslatesClassRefs() throws IOException {
+        RuntimeMappings m = RuntimeMappings.load(writeMappings(String.join("\n",
+            "net.minecraft.server.level.ServerLevel -> aqu:",
+            "net.minecraft.world.entity.Entity -> cdv:")));
+        String runtimeClass = m.toRuntimeName("net/minecraft/server/level/ServerLevel");
+
+        // (Ldcd-style runtime refs become Mojang refs; primitives untouched)
+        assertEquals("(Lnet/minecraft/world/entity/Entity;)Z",
+            m.toDeobfDescriptor("(Lcdv;)Z"));
+        assertEquals("()V", m.toDeobfDescriptor("()V"));
+        assertEquals("(IJ)Ljava/lang/String;",
+            m.toDeobfDescriptor("(IJ)Ljava/lang/String;"));
+        assertEquals("[Lnet/minecraft/server/level/ServerLevel;",
+            m.toDeobfDescriptor("[Laqu;"));
+    }
+
+    @Test
     void reverseMethodLookupRestoresDeobfNames() throws IOException {
         RuntimeMappings m = RuntimeMappings.load(writeMappings(String.join("\n",
             "net.minecraft.server.level.ServerLevel -> aqu:",

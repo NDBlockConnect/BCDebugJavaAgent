@@ -62,7 +62,7 @@ public final class RecordExporter {
             MethodStatEntry e = new MethodStatEntry();
             e.className = displayClassName(s.className);
             e.methodName = displayMethodName(s.className, s.methodName, s.descriptor);
-            e.descriptor = s.descriptor;
+            e.descriptor = displayDescriptor(s.descriptor);
             e.entryCount = s.entryCount.get();
             e.exitCount = s.exitCount.get();
             e.totalNanos = s.totalNanos.get();
@@ -91,6 +91,15 @@ public final class RecordExporter {
         return mappings != null
             ? mappings.toDeobfMethodName(runtimeClass, runtimeMethod, descriptor)
             : runtimeMethod;
+    }
+
+    /** Display-friendly descriptor: L refs reverse-translated when mappings
+     *  are active; everything else passes through. */
+    public static String displayDescriptor(String descriptor) {
+        RuntimeMappings mappings = HookRegistry.getInstance().getMappings();
+        return mappings != null
+            ? mappings.toDeobfDescriptor(descriptor)
+            : descriptor;
     }
 
     private static final class LogEntry {

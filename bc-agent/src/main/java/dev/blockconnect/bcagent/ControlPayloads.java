@@ -43,7 +43,7 @@ final class ControlPayloads {
             entry.put("class", RecordExporter.displayClassName(s.className));
             entry.put("method", RecordExporter.displayMethodName(
                 s.className, s.methodName, s.descriptor));
-            entry.put("descriptor", s.descriptor);
+            entry.put("descriptor", RecordExporter.displayDescriptor(s.descriptor));
             entry.put("entries", s.entryCount.get());
             entry.put("exits", s.exitCount.get());
             entry.put("totalNanos", s.totalNanos.get());
