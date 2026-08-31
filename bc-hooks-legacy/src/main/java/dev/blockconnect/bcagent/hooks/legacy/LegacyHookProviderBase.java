@@ -27,11 +27,14 @@ public abstract class LegacyHookProviderBase implements HookProvider {
     protected LegacyHookProviderBase(String profileId) {
         this.profileId = profileId;
         this.hooks = new ArrayList<>();
-        registerHooks(hooks);
+        addHooks(this.hooks);
     }
 
     /** Profile identifier this provider responds to (e.g. "1.21"). */
     protected abstract String profile();
+
+    /** Populate the provider's hook set. Called once from the constructor. */
+    protected abstract void addHooks(List<MethodHook> hooks);
 
     @Override
     public final boolean matchesProfile(String profile) {
@@ -48,7 +51,8 @@ public abstract class LegacyHookProviderBase implements HookProvider {
         return hooks;
     }
 
-    private static void registerHooks(List<MethodHook> hooks) {
+    /** Shared 1.20.x/1.21.x hook set (Mojang official mappings). */
+    static void add120121Hooks(List<MethodHook> hooks) {
         // Minecraft.tick() — main client tick
         hooks.add(new MethodHook(
             "net/minecraft/client/Minecraft", "tick", "()V",

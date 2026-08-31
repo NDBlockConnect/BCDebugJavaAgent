@@ -47,7 +47,10 @@ public class ControlServer implements ControlPlane {
             java.util.Map<String, String> q = query(exchange.getRequestURI().getRawQuery());
             if (!auth.apply(exchange, q)) { send401(exchange); return; }
             if (!requireGet(exchange)) return;
-            sendJson(exchange, 200, ControlPayloads.methods());
+            sendJson(exchange, 200, ControlPayloads.methods(
+                q.getOrDefault("contains", ""),
+                parseInt(q.getOrDefault("min", "0"), 0),
+                parseInt(q.getOrDefault("limit", "0"), 0)));
         }));
         server.createContext("/logs", exchange -> safe(exchange, () -> {
             java.util.Map<String, String> q = query(exchange.getRequestURI().getRawQuery());

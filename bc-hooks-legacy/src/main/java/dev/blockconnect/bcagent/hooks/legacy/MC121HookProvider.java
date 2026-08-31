@@ -16,6 +16,11 @@ public class MC121HookProvider extends LegacyHookProviderBase {
     }
 
     @Override
+    protected void addHooks(java.util.List<dev.blockconnect.bcagent.core.MethodHook> hooks) {
+        add120121Hooks(hooks);
+    }
+
+    @Override
     public String name() {
         return "MC-1.21-Hooks";
     }

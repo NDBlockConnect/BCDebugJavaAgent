@@ -1,2 +1,3 @@
 dev.blockconnect.bcagent.hooks.legacy.MC120HookProvider
 dev.blockconnect.bcagent.hooks.legacy.MC121HookProvider
+dev.blockconnect.bcagent.hooks.legacy.MC112HookProvider

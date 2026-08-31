@@ -115,7 +115,10 @@ public final class RawSocketControlServer implements ControlPlane {
             if (path.equals("/status")) {
                 respond(s, 200, GSON.toJson(ControlPayloads.status()));
             } else if (path.equals("/methods")) {
-                respond(s, 200, GSON.toJson(ControlPayloads.methods()));
+                respond(s, 200, GSON.toJson(ControlPayloads.methods(
+                    query.getOrDefault("contains", ""),
+                    parseInt(query.getOrDefault("min", "0")),
+                    parseInt(query.getOrDefault("limit", "0")))));
             } else if (path.equals("/logs")) {
                 respond(s, 200, GSON.toJson(ControlPayloads.logs(100)));
             } else if (path.equals("/classes")) {

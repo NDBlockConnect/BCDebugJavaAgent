@@ -58,11 +58,36 @@ class LegacyHookProvidersTest {
     void providersAreExclusiveByProfile() {
         MC120HookProvider p120 = new MC120HookProvider();
         MC121HookProvider p121 = new MC121HookProvider();
-        // Same profile string must never activate both providers
-        for (String profile : new String[]{"26", "1.21", "1.20", "auto", ""}) {
+        MC112HookProvider p112 = new MC112HookProvider();
+        // Same profile string must never activate two providers
+        for (String profile : new String[]{"26", "1.21", "1.20", "1.12", "auto", ""}) {
             int active = (p120.matchesProfile(profile) ? 1 : 0)
-                       + (p121.matchesProfile(profile) ? 1 : 0);
-            assertTrue(active <= 1, "Both providers match profile: " + profile);
+                       + (p121.matchesProfile(profile) ? 1 : 0)
+                       + (p112.matchesProfile(profile) ? 1 : 0);
+            assertTrue(active <= 1, "Multiple providers match profile: " + profile);
         }
+    }
+
+    @Test
+    void mc112ExperimentalProviderProfileAndHooks() {
+        MC112HookProvider provider = new MC112HookProvider();
+        assertEquals("MC-1.12-Hooks (experimental)", provider.name());
+        assertTrue(provider.matchesProfile("1.12"));
+        assertFalse(provider.matchesProfile("1.21"));
+        assertFalse(provider.matchesProfile("1.20"));
+        assertFalse(provider.matchesProfile("26"));
+        assertFalse(provider.matchesProfile("auto"));
+
+        List<MethodHook> hooks = provider.getHooks();
+        assertEquals(5, hooks.size());
+
+        // MCP-era signatures: runTick()V (no boolean), render(FJ)V
+        assertTrue(hooks.stream().anyMatch(h ->
+            "runTick".equals(h.methodName) && "()V".equals(h.descriptor)));
+        assertTrue(hooks.stream().anyMatch(h ->
+            "render".equals(h.methodName) && "(FJ)V".equals(h.descriptor)));
+        assertTrue(hooks.stream().anyMatch(h ->
+            "loadWorld".equals(h.methodName)
+                && "(Lnet/minecraft/client/multiplayer/WorldClient;)V".equals(h.descriptor)));
     }
 }

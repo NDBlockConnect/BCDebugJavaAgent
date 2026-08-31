@@ -36,9 +36,23 @@ final class ControlPayloads {
     }
 
     static List<Map<String, Object>> methods() {
+        return methods("", 0, 0);
+    }
+
+    /**
+     * Filtered method statistics: {@code contains} matches the class name
+     * substring, {@code min} filters by entry count, {@code limit} caps rows
+     * (0 = no cap). Sorting by entry count descending when limiting applies.
+     */
+    static List<Map<String, Object>> methods(String contains, int min, int limit) {
         Map<String, MethodRecorder.MethodStats> stats = MethodRecorder.snapshot();
-        List<Map<String, Object>> list = new ArrayList<>(stats.size());
+        String needle = contains == null ? "" : contains;
+
+        List<Map<String, Object>> list = new ArrayList<>();
         for (MethodRecorder.MethodStats s : stats.values()) {
+            if (!needle.isEmpty() && !s.className.contains(needle)) continue;
+            if (min > 0 && s.entryCount.get() < min) continue;
+
             Map<String, Object> entry = new LinkedHashMap<>();
             entry.put("class", RecordExporter.displayClassName(s.className));
             entry.put("method", RecordExporter.displayMethodName(
@@ -48,6 +62,12 @@ final class ControlPayloads {
             entry.put("exits", s.exitCount.get());
             entry.put("totalNanos", s.totalNanos.get());
             list.add(entry);
+        }
+
+        if (limit > 0 && list.size() > limit) {
+            list.sort((a, b) -> Long.compare(
+                (Long) b.get("entries"), (Long) a.get("entries")));
+            list = new ArrayList<>(list.subList(0, limit));
         }
         return list;
     }
