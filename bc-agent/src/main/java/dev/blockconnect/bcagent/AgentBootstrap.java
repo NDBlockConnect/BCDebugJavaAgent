@@ -19,7 +19,7 @@ import java.util.jar.Manifest;
 public final class AgentBootstrap {
 
     private static final String AGENT_NAME = "BCDebugJavaAgent";
-    private static final String FALLBACK_VERSION = "v26.1-Alpha.5";
+    private static final String FALLBACK_VERSION = "v26.1-Alpha.6";
     private static String agentVersion;
 
     private static volatile boolean initialized = false;
@@ -40,6 +40,7 @@ public final class AgentBootstrap {
         instrumentation = inst;
 
         AgentLogger.init(config);
+        AuditLog.init(config);
         agentVersion = detectVersion();
 
         AgentLogger log = AgentLogger.getInstance();
@@ -153,6 +154,7 @@ public final class AgentBootstrap {
         if (config != null) config.logLevel = levelName.toUpperCase();
         AgentLogger.getInstance().info(
             "Log level changed: " + previous + " -> " + levelName.toUpperCase());
+        AuditLog.record("log-level", previous + " -> " + levelName.toUpperCase());
         return levelName.toUpperCase();
     }
 
@@ -161,7 +163,10 @@ public final class AgentBootstrap {
      * so hooks missed during boot still inject. See {@link HookRegistry#reload}.
      */
     public static java.util.Map<String, Object> reloadHooks() {
-        return HookRegistry.getInstance().reload(instrumentation, config);
+        java.util.Map<String, Object> summary =
+            HookRegistry.getInstance().reload(instrumentation, config);
+        AuditLog.record("hooks-reload", summary.toString());
+        return summary;
     }
 
     /**
@@ -201,6 +206,27 @@ public final class AgentBootstrap {
         summary.put("removed", removed);
         summary.put("activeFilters", config.classFilters.length);
 
+        // Mute semantics for removal: already-instrumented classes keep
+        // calling into the recorder, so removed prefixes go SILENT via the
+        // recorder's muted set. Re-adding a prefix unmutes it. Byte surgery
+        // (true stripping) is deliberately not attempted.
+        java.util.List<String> muted = new java.util.ArrayList<>();
+        for (String p : MethodRecorder.getMutedPrefixes()) muted.add(p);
+        if (remove != null) {
+            for (String r : remove) {
+                String prefix = r == null ? "" : r.trim();
+                if (!prefix.isEmpty() && !muted.contains(prefix)) muted.add(prefix);
+            }
+        }
+        if (add != null) {
+            for (String a : add) {
+                String prefix = a == null ? "" : a.trim();
+                muted.remove(prefix);
+            }
+        }
+        MethodRecorder.setMutedPrefixes(muted.toArray(new String[0]));
+        summary.put("muted", muted);
+
         int retransformed = 0;
         int failed = 0;
         if (!addedPrefixes.isEmpty() && instrumentation != null) {
@@ -225,6 +251,7 @@ public final class AgentBootstrap {
         summary.put("failed", failed);
         AgentLogger.getInstance().info("Filters changed: +" + added + "/-" + removed
             + " — reinstrumented " + retransformed + " loaded classes (" + failed + " failed)");
+        AuditLog.record("filters", summary.toString());
         return summary;
     }
 
