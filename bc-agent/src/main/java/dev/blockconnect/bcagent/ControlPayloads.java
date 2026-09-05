@@ -5,7 +5,6 @@ import dev.blockconnect.bcagent.core.AgentLogger;
 import dev.blockconnect.bcagent.core.HookRegistry;
 import dev.blockconnect.bcagent.core.MethodRecorder;
 import dev.blockconnect.bcagent.core.RecordExporter;
-
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -32,6 +31,9 @@ final class ControlPayloads {
         status.put("methodRecords", MethodRecorder.methodCount());
         status.put("hooksActive", hooks.isActive());
         status.put("totalHooks", hooks.totalHooks());
+        status.put("mutedPrefixes", MethodRecorder.getMutedPrefixes().length);
+        AgentConfig cfg = AgentBootstrap.getConfig();
+        status.put("tokenEnabled", cfg != null && TokenGuard.isEnabled(cfg));
         return status;
     }
 
@@ -73,11 +75,34 @@ final class ControlPayloads {
     }
 
     static List<Map<String, Object>> logs(int limit) {
+        return logs(null, "", limit);
+    }
+
+    /**
+     * Filtered log records: {@code minLevel} keeps records at or above the
+     * given severity (TRACE..ERROR), {@code contains} matches the message
+     * substring, {@code limit} caps rows. Newest last.
+     */
+    static List<Map<String, Object>> logs(String minLevel, String contains, int limit) {
         AgentLogger.LogRecord[] records = AgentLogger.getInstance().snapshot();
-        int capped = Math.min(records.length, limit);
-        List<Map<String, Object>> list = new ArrayList<>(capped);
-        for (int i = 0; i < capped; i++) {
+        String needle = contains == null ? "" : contains;
+
+        AgentLogger.Level floor = null;
+        if (minLevel != null && !minLevel.trim().isEmpty()) {
+            try {
+                floor = AgentLogger.Level.valueOf(minLevel.trim().toUpperCase());
+            } catch (IllegalArgumentException ignored) {
+                floor = null;
+            }
+        }
+
+        List<Map<String, Object>> list = new ArrayList<>();
+        for (int i = records.length - 1; i >= 0; i--) {
+            if (limit > 0 && list.size() >= limit) break;
             AgentLogger.LogRecord r = records[i];
+            if (floor != null && (r.level == null || r.level.severity < floor.severity)) continue;
+            if (!needle.isEmpty() && (r.message == null || !r.message.contains(needle))) continue;
+
             Map<String, Object> entry = new LinkedHashMap<>();
             entry.put("ts", r.timestamp != null ? r.timestamp.toString() : null);
             entry.put("level", r.level != null ? r.level.name() : null);

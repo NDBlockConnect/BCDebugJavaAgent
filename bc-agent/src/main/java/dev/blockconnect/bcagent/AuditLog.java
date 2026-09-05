@@ -34,9 +34,15 @@ public final class AuditLog {
 
     /** Append one audit record. */
     public static void record(String operation, String detail) {
+        record(operation, detail, null);
+    }
+
+    /** Append one audit record with an optional caller address. */
+    public static void record(String operation, String detail, String remote) {
         Map<String, Object> entry = new LinkedHashMap<>();
         entry.put("ts", Instant.now().toString());
         entry.put("op", operation);
+        if (remote != null && !remote.isEmpty()) entry.put("remote", remote);
         entry.put("detail", detail);
         String line = GSON.toJson(entry);
         try {

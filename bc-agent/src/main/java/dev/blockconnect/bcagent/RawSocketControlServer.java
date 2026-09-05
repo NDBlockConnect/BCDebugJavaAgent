@@ -108,6 +108,8 @@ public final class RawSocketControlServer implements ControlPlane {
                 ? headers.get(TokenGuard.HEADER.toLowerCase())
                 : query.get(TokenGuard.QUERY_PARAM);
             if (!TokenGuard.authorized(config, presented)) {
+                AuditLog.record("auth-fail", "path=" + path,
+                    String.valueOf(s.getRemoteSocketAddress()));
                 respond(s, 401, "{\"error\":\"Unauthorized\"}");
                 return;
             }
@@ -120,7 +122,10 @@ public final class RawSocketControlServer implements ControlPlane {
                     parseInt(query.getOrDefault("min", "0")),
                     parseInt(query.getOrDefault("limit", "0")))));
             } else if (path.equals("/logs")) {
-                respond(s, 200, GSON.toJson(ControlPayloads.logs(100)));
+                respond(s, 200, GSON.toJson(ControlPayloads.logs(
+                    query.get("level"),
+                    query.getOrDefault("contains", ""),
+                    parseInt(query.getOrDefault("limit", "100")))));
             } else if (path.equals("/classes")) {
                 respond(s, 200, GSON.toJson(
                     AgentBootstrap.findLoadedClasses(
@@ -161,6 +166,8 @@ public final class RawSocketControlServer implements ControlPlane {
                 } else {
                     try {
                         respond(s, 200, GSON.toJson(ControlPayloads.export(config)));
+                        AuditLog.record("export", "manual",
+                            String.valueOf(s.getRemoteSocketAddress()));
                     } catch (Exception e) {
                         respond(s, 500,
                             "{\"error\":" + GSON.toJson(String.valueOf(e.getMessage())) + "}");

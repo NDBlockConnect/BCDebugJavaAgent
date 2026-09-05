@@ -30,10 +30,18 @@ public class ControlServer implements ControlPlane {
 
         // Token guard runs first on every endpoint (no-op when unset).
         java.util.function.BiFunction<HttpExchange, java.util.Map<String, String>, Boolean> auth =
-            (exchange, q) -> TokenGuard.authorized(config,
-                exchange.getRequestHeaders().getFirst(TokenGuard.HEADER) != null
-                    ? exchange.getRequestHeaders().getFirst(TokenGuard.HEADER)
-                    : q.get(TokenGuard.QUERY_PARAM));
+            (exchange, q) -> {
+                boolean ok = TokenGuard.authorized(config,
+                    exchange.getRequestHeaders().getFirst(TokenGuard.HEADER) != null
+                        ? exchange.getRequestHeaders().getFirst(TokenGuard.HEADER)
+                        : q.get(TokenGuard.QUERY_PARAM));
+                if (!ok) {
+                    AuditLog.record("auth-fail",
+                        "path=" + exchange.getRequestURI().getPath(),
+                        String.valueOf(exchange.getRemoteAddress()));
+                }
+                return ok;
+            };
 
         // F-2 (v26.0 robustness assessment): read endpoints enforce GET,
         // write endpoints enforce POST — mirrors the raw-socket frontend.
@@ -56,7 +64,10 @@ public class ControlServer implements ControlPlane {
             java.util.Map<String, String> q = query(exchange.getRequestURI().getRawQuery());
             if (!auth.apply(exchange, q)) { send401(exchange); return; }
             if (!requireGet(exchange)) return;
-            sendJson(exchange, 200, ControlPayloads.logs(100));
+            sendJson(exchange, 200, ControlPayloads.logs(
+                q.get("level"),
+                q.getOrDefault("contains", ""),
+                parseInt(q.getOrDefault("limit", "100"), 100)));
         }));
         server.createContext("/classes", exchange -> safe(exchange, () -> {
             java.util.Map<String, String> q = query(exchange.getRequestURI().getRawQuery());
@@ -110,7 +121,7 @@ public class ControlServer implements ControlPlane {
                 sendText(exchange, 405, "Method not allowed");
                 return;
             }
-            sendJson(exchange, 200, ControlPayloads.export(config));
+            sendJson(exchange, 200, ControlPayloads.export(config)); AuditLog.record("export", "manual", String.valueOf(exchange.getRemoteAddress()));
         }));
 
         server.setExecutor(java.util.concurrent.Executors.newFixedThreadPool(2));
