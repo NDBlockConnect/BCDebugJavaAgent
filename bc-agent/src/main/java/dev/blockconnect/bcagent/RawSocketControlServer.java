@@ -150,6 +150,29 @@ public final class RawSocketControlServer implements ControlPlane {
                 } else {
                     respond(s, 200, GSON.toJson(AgentBootstrap.reloadHooks()));
                 }
+            } else if (path.equals("/hooks/add")) {
+                if (!"POST".equals(method)) {
+                    respond(s, 405, "{\"error\":\"Method not allowed\"}");
+                } else {
+                    String cls = query.get("class");
+                    String mth = query.get("method");
+                    if (cls == null || cls.trim().isEmpty() || mth == null || mth.trim().isEmpty()) {
+                        respond(s, 400, "{\"error\":\"Missing class or method\"}");
+                    } else {
+                        respond(s, 200, GSON.toJson(AgentBootstrap.addRuntimeHook(
+                            cls.replace('.', '/'), mth,
+                            query.getOrDefault("desc", "*"),
+                            query.getOrDefault("level", "INFO"))));
+                    }
+                }
+            } else if (path.equals("/hooks/list")) {
+                respond(s, 200, GSON.toJson(AgentBootstrap.listRuntimeHooks()));
+            } else if (path.equals("/hooks/clear")) {
+                if (!"POST".equals(method)) {
+                    respond(s, 405, "{\"error\":\"Method not allowed\"}");
+                } else {
+                    respond(s, 200, GSON.toJson(AgentBootstrap.clearRuntimeHooks()));
+                }
             } else if (path.equals("/filters")) {
                 if (!"POST".equals(method)) {
                     respond(s, 405, "{\"error\":\"Method not allowed\"}");

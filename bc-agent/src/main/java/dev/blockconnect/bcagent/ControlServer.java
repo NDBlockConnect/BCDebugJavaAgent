@@ -101,6 +101,39 @@ public class ControlServer implements ControlPlane {
             }
             sendJson(exchange, 200, AgentBootstrap.reloadHooks());
         }));
+        server.createContext("/hooks/add", exchange -> safe(exchange, () -> {
+            java.util.Map<String, String> q = query(exchange.getRequestURI().getRawQuery());
+            if (!auth.apply(exchange, q)) { send401(exchange); return; }
+            if (!"POST".equals(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed");
+                return;
+            }
+            String cls = q.get("class");
+            String mth = q.get("method");
+            String desc = q.getOrDefault("desc", "*");
+            String level = q.getOrDefault("level", "INFO");
+            if (cls == null || cls.trim().isEmpty() || mth == null || mth.trim().isEmpty()) {
+                sendText(exchange, 400, "Missing ?class= or ?method=");
+                return;
+            }
+            sendJson(exchange, 200, AgentBootstrap.addRuntimeHook(
+                cls.replace('.', '/'), mth, desc, level));
+        }));
+        server.createContext("/hooks/list", exchange -> safe(exchange, () -> {
+            java.util.Map<String, String> q = query(exchange.getRequestURI().getRawQuery());
+            if (!auth.apply(exchange, q)) { send401(exchange); return; }
+            if (!requireGet(exchange)) return;
+            sendJson(exchange, 200, AgentBootstrap.listRuntimeHooks());
+        }));
+        server.createContext("/hooks/clear", exchange -> safe(exchange, () -> {
+            java.util.Map<String, String> q = query(exchange.getRequestURI().getRawQuery());
+            if (!auth.apply(exchange, q)) { send401(exchange); return; }
+            if (!"POST".equals(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed");
+                return;
+            }
+            sendJson(exchange, 200, AgentBootstrap.clearRuntimeHooks());
+        }));
         server.createContext("/filters", exchange -> safe(exchange, () -> {
             java.util.Map<String, String> q = query(exchange.getRequestURI().getRawQuery());
             if (!auth.apply(exchange, q)) { send401(exchange); return; }

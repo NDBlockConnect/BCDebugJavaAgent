@@ -39,6 +39,9 @@ public final class HookRegistry {
     /** Config captured at init — needed by reload to push dynamic filters. */
     private volatile AgentConfig boundConfig;
 
+    /** Runtime-registered hooks (authored directly in runtime names). */
+    private final List<MethodHook> runtimeHooks = new ArrayList<>();
+
     public static HookRegistry getInstance() {
         return INSTANCE;
     }
@@ -233,6 +236,58 @@ public final class HookRegistry {
 
     /** Mappings currently in effect, or null. Used by export translation. */
     public RuntimeMappings getMappings() { return mappings; }
+
+    // ── Runtime hook API ─────────────────────────────────────
+
+    /**
+     * Register an ad-hoc hook authored directly in RUNTIME names (no mapping
+     * translation applied) with a generic logging callback at the requested
+     * level. Returns the created hook.
+     */
+    public synchronized MethodHook addRuntimeHook(String className, String methodName,
+                                                   String descriptor, String levelName) {
+        AgentLogger.Level level = AgentLogger.Level.fromString(levelName);
+        String label = "RuntimeHook " + className + "#" + methodName
+            + " args=%s";
+        MethodHook hook = new MethodHook(className, methodName, descriptor,
+            (cls, name, desc, args, result, exc) -> {
+                int n = args == null ? 0 : args.length;
+                AgentLogger.getInstance().log(level, label.replace("%s", String.valueOf(n)), null);
+            },
+            null, false, "runtime-registered observation point");
+        runtimeHooks.add(hook);
+        hooksByClass.computeIfAbsent(hook.className, k -> new ArrayList<>()).add(hook);
+        AgentLogger.getInstance().info("Runtime hook registered: "
+            + hook.className + "#" + hook.methodName + hook.descriptor);
+        return hook;
+    }
+
+    /** Live view of runtime-registered hooks. */
+    public List<MethodHook> getRuntimeHooks() {
+        return new ArrayList<>(runtimeHooks);
+    }
+
+    /**
+     * Remove ALL runtime hooks from dispatch. Already-injected bytecode
+     * remains but finds no registry entry and therefore no-ops.
+     *
+     * @return number of hooks removed
+     */
+    public synchronized int clearRuntimeHooks() {
+        int n = runtimeHooks.size();
+        for (MethodHook hook : runtimeHooks) {
+            List<MethodHook> list = hooksByClass.get(hook.className);
+            if (list != null) {
+                list.remove(hook);
+                if (list.isEmpty()) hooksByClass.remove(hook.className);
+            }
+        }
+        runtimeHooks.clear();
+        if (n > 0) {
+            AgentLogger.getInstance().info("Runtime hooks cleared: " + n);
+        }
+        return n;
+    }
 
     /**
      * Resolve the "auto" profile against the running MC version.

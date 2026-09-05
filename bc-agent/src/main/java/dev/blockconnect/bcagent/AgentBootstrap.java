@@ -19,7 +19,7 @@ import java.util.jar.Manifest;
 public final class AgentBootstrap {
 
     private static final String AGENT_NAME = "BCDebugJavaAgent";
-    private static final String FALLBACK_VERSION = "v26.1-Alpha.7";
+    private static final String FALLBACK_VERSION = "v26.1-Alpha.8";
     private static String agentVersion;
 
     private static volatile boolean initialized = false;
@@ -166,6 +166,61 @@ public final class AgentBootstrap {
         java.util.Map<String, Object> summary =
             HookRegistry.getInstance().reload(instrumentation, config);
         AuditLog.record("hooks-reload", summary.toString());
+        return summary;
+    }
+
+    /**
+     * Register an ad-hoc runtime hook (authored in RUNTIME names) and
+     * retransform the already-loaded target class so the observation point
+     * starts firing immediately. Tracker guarantees no double injection.
+     */
+    public static java.util.Map<String, Object> addRuntimeHook(
+            String className, String methodName, String descriptor, String level) {
+        java.util.Map<String, Object> summary = new java.util.LinkedHashMap<>();
+        MethodHook hook = HookRegistry.getInstance().addRuntimeHook(
+            className, methodName, descriptor, level);
+        summary.put("hook", hook.className + "#" + hook.methodName + hook.descriptor);
+
+        int retransformed = 0;
+        int failed = 0;
+        if (instrumentation != null) {
+            String dotted = className.replace('/', '.');
+            for (Class<?> c : instrumentation.getAllLoadedClasses()) {
+                if (c.getName().equals(dotted)) {
+                    try {
+                        instrumentation.retransformClasses(c);
+                        retransformed++;
+                    } catch (Throwable t) {
+                        failed++;
+                        AgentLogger.getInstance().error(
+                            "Runtime-hook retransform failed for " + dotted
+                                + ": " + t.getMessage(), t);
+                    }
+                    break;
+                }
+            }
+        }
+        summary.put("retransformed", retransformed);
+        summary.put("failed", failed);
+        AuditLog.record("hooks-add", summary.toString());
+        return summary;
+    }
+
+    /** List runtime-registered hooks. */
+    public static java.util.List<String> listRuntimeHooks() {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        for (MethodHook h : HookRegistry.getInstance().getRuntimeHooks()) {
+            out.add(h.className + "#" + h.methodName + h.descriptor);
+        }
+        return out;
+    }
+
+    /** Clear all runtime hooks (dispatch no-ops for their old call sites). */
+    public static java.util.Map<String, Object> clearRuntimeHooks() {
+        int removed = HookRegistry.getInstance().clearRuntimeHooks();
+        java.util.Map<String, Object> summary = new java.util.LinkedHashMap<>();
+        summary.put("removed", removed);
+        AuditLog.record("hooks-clear", summary.toString());
         return summary;
     }
 
