@@ -145,6 +145,16 @@ public final class RawSocketControlServer implements ControlPlane {
                 } else {
                     respond(s, 200, GSON.toJson(AgentBootstrap.reloadHooks()));
                 }
+            } else if (path.equals("/filters")) {
+                if (!"POST".equals(method)) {
+                    respond(s, 405, "{\"error\":\"Method not allowed\"}");
+                } else {
+                    String add = query.get("add");
+                    String remove = query.get("remove");
+                    respond(s, 200, GSON.toJson(AgentBootstrap.setFilters(
+                        add == null ? null : add.split(","),
+                        remove == null ? null : remove.split(","))));
+                }
             } else if (path.equals("/export")) {
                 if (!"POST".equals(method)) {
                     respond(s, 405, "{\"error\":\"Method not allowed\"}");

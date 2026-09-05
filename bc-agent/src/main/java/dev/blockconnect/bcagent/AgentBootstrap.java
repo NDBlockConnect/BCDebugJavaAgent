@@ -19,12 +19,13 @@ import java.util.jar.Manifest;
 public final class AgentBootstrap {
 
     private static final String AGENT_NAME = "BCDebugJavaAgent";
-    private static final String FALLBACK_VERSION = "v26.1-Alpha.4";
+    private static final String FALLBACK_VERSION = "v26.1-Alpha.5";
     private static String agentVersion;
 
     private static volatile boolean initialized = false;
     private static AgentConfig config;
     private static Instrumentation instrumentation;
+    private static BCTransformer bcTransformer;
 
     private AgentBootstrap() {}
 
@@ -59,6 +60,7 @@ public final class AgentBootstrap {
 
         BCTransformer bcTransformer = new BCTransformer(config);
         inst.addTransformer(bcTransformer, true);
+        AgentBootstrap.bcTransformer = bcTransformer;
         log.info("Registered BCTransformer (method logging)");
 
         HookTransformer hookTransformer = new HookTransformer();
@@ -160,6 +162,70 @@ public final class AgentBootstrap {
      */
     public static java.util.Map<String, Object> reloadHooks() {
         return HookRegistry.getInstance().reload(instrumentation, config);
+    }
+
+    /**
+     * Live instrumentation-scope change: add/remove class-name prefixes from
+     * the general recorder filters, then retransform already-loaded classes
+     * matching any ADDED prefix so they start recording without a restart.
+     * Classes already instrumented keep their bytes (tracker-guarded).
+     *
+     * @return summary counters for the control-plane response
+     */
+    public static synchronized java.util.Map<String, Object> setFilters(
+            String[] add, String[] remove) {
+        java.util.Map<String, Object> summary = new java.util.LinkedHashMap<>();
+        java.util.List<String> filters = new java.util.ArrayList<>();
+        for (String f : config.classFilters) filters.add(f);
+
+        int added = 0;
+        int removed = 0;
+        java.util.List<String> addedPrefixes = new java.util.ArrayList<>();
+        if (add != null) {
+            for (String a : add) {
+                if (a == null || a.trim().isEmpty()) continue;
+                if (filters.contains(a.trim())) continue;
+                filters.add(a.trim());
+                addedPrefixes.add(a.trim().replace('.', '/'));
+                added++;
+            }
+        }
+        if (remove != null) {
+            for (String r : remove) {
+                if (r == null || r.trim().isEmpty()) continue;
+                if (filters.remove(r.trim())) removed++;
+            }
+        }
+        config.classFilters = filters.toArray(new String[0]);
+        summary.put("added", added);
+        summary.put("removed", removed);
+        summary.put("activeFilters", config.classFilters.length);
+
+        int retransformed = 0;
+        int failed = 0;
+        if (!addedPrefixes.isEmpty() && instrumentation != null) {
+            for (Class<?> c : instrumentation.getAllLoadedClasses()) {
+                String internal = c.getName().replace('.', '/');
+                boolean matches = false;
+                for (String prefix : addedPrefixes) {
+                    if (internal.startsWith(prefix)) { matches = true; break; }
+                }
+                if (!matches) continue;
+                try {
+                    instrumentation.retransformClasses(c);
+                    retransformed++;
+                } catch (Throwable t) {
+                    failed++;
+                    AgentLogger.getInstance().error(
+                        "Reinstrument failed for " + c.getName() + ": " + t.getMessage(), t);
+                }
+            }
+        }
+        summary.put("retransformed", retransformed);
+        summary.put("failed", failed);
+        AgentLogger.getInstance().info("Filters changed: +" + added + "/-" + removed
+            + " — reinstrumented " + retransformed + " loaded classes (" + failed + " failed)");
+        return summary;
     }
 
     /** Search loaded classes by name substring (control-plane introspection). */

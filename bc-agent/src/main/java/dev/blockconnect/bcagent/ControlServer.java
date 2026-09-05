@@ -90,6 +90,19 @@ public class ControlServer implements ControlPlane {
             }
             sendJson(exchange, 200, AgentBootstrap.reloadHooks());
         }));
+        server.createContext("/filters", exchange -> safe(exchange, () -> {
+            java.util.Map<String, String> q = query(exchange.getRequestURI().getRawQuery());
+            if (!auth.apply(exchange, q)) { send401(exchange); return; }
+            if (!"POST".equals(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed");
+                return;
+            }
+            String add = q.get("add");
+            String remove = q.get("remove");
+            sendJson(exchange, 200, AgentBootstrap.setFilters(
+                add == null ? null : add.split(","),
+                remove == null ? null : remove.split(",")));
+        }));
         server.createContext("/export", exchange -> safe(exchange, () -> {
             java.util.Map<String, String> q = query(exchange.getRequestURI().getRawQuery());
             if (!auth.apply(exchange, q)) { send401(exchange); return; }

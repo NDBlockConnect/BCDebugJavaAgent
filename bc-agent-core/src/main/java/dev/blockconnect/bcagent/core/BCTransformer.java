@@ -14,9 +14,15 @@ import java.security.ProtectionDomain;
 public class BCTransformer implements ClassFileTransformer {
 
     private final AgentConfig config;
+    private final InstrumentationTracker tracker = new InstrumentationTracker();
 
     public BCTransformer(AgentConfig config) {
         this.config = config;
+    }
+
+    /** Tracker access for live-filter retransform operations. */
+    public InstrumentationTracker getTracker() {
+        return tracker;
     }
 
     @Override
@@ -26,13 +32,19 @@ public class BCTransformer implements ClassFileTransformer {
                              byte[] classfileBuffer) {
         if (className == null) return null;
 
-        // General method logging is first-load-only: re-running the advice
-        // adapter over already-instrumented bytes would double-count entries
-        // and corrupt timing. Retransforms therefore leave these classes as-is.
-        if (classBeingRedefined != null) return null;
-
         if (!config.matchesClass(className.replace('/', '.'))) {
             return null;
+        }
+
+        boolean retransform = classBeingRedefined != null;
+        if (retransform) {
+            // Live filter extension: only classes that were OUT of scope at
+            // load time may be instrumented now; re-running the advice
+            // adapter over already-instrumented bytes would double-count.
+            if (tracker.alreadyInstrumented(className)) return null;
+            if (!tracker.tryClaim(className)) return null;
+        } else {
+            if (!tracker.tryClaim(className)) return null;
         }
 
         try {
@@ -46,6 +58,7 @@ public class BCTransformer implements ClassFileTransformer {
             reader.accept(new BCClassVisitor(writer, config), ClassReader.EXPAND_FRAMES);
             return writer.toByteArray();
         } catch (Throwable t) {
+            tracker.release(className);
             AgentLogger.getInstance().error(
                 "Transform failed for " + className + ": " + t.getMessage(), t);
             return null;
