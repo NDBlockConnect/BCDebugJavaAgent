@@ -16,6 +16,9 @@ Internally | BlockConnect uses a Minecraft‑debug‑level JavaAgent, which is s
 | Alpha 9 | Client-side diagnosis hooks (setScreen / pauseGame) |
 | Alpha 10 | Dynamic statistics filters (**LTS**) |
 | **v26.0** | **GA — production release of the full line** |
+| v26.1 Alpha 1–8 | Universal JDK 8+ runtime, mapping fallback, security token, live diagnostics and runtime operations |
+| v26.1 Alpha 9 | LTS regression battery (**PASS**) |
+| v26.1 Alpha 10 | **LTS candidate** |
 
 ## Overview
 
