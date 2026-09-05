@@ -44,3 +44,26 @@ the remaining read/export assertions could complete.
 mapping, filter, mute, audit, and dynamic-hook features remain healthy under
 real-server operation. Alpha.10 should be the LTS release candidate after a
 final short battery and release documentation review.
+
+---
+
+## v26.1 GA Promotion Round (addendum)
+
+Executed against the GA artifact (cdebug-javaagent-v26.1.jar), same server:
+
+| Check | Result |
+|---|---|
+| Agent init | 26.1, token enabled, hooks active |
+| Mapping auto-discovery | 6148 mappings applied |
+| Hook reload / filters add / runtime hook add | All accepted (etransformed:0 where target class not yet loaded — pending-state semantics verified in Alpha.10) |
+| Token enforcement | Missing token = 401 |
+| Log filter | 3 filtered rows (INFO contains=mappings) |
+| **Auto-filter ServerLevel.tick (GA jar)** | **entryCount=43419 in exported stats** |
+| Export | Success |
+| Audit trail | Records captured (incl. auth-fail from unauthenticated probes) |
+
+Runtime-hook firing on the GA jar was proven in the Alpha.8/Alpha.10 rounds on
+the same code path (R5's pending hook in this round was registered before
+world init and injected on first load per Alpha.10 lifecycle evidence).
+
+**GA VERDICT: PASS.** Promoted to 26.1 GA.
