@@ -19,7 +19,7 @@ import java.util.jar.Manifest;
 public final class AgentBootstrap {
 
     private static final String AGENT_NAME = "BCDebugJavaAgent";
-    private static final String FALLBACK_VERSION = "v26.1-Alpha.8";
+    private static final String FALLBACK_VERSION = "v26.1-Alpha.9";
     private static String agentVersion;
 
     private static volatile boolean initialized = false;
